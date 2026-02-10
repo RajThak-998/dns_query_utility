@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== DNS Query Utility ===\n")
+	fmt.Println("=== DNS Query Utility ===")
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <csv_file>")
@@ -46,7 +46,7 @@ func main() {
 	}
 
 	fmt.Println("\nExecuting DNS Queries:")
-	fmt.Println("======================\n")
+	fmt.Println("======================")
 
 	for i, spec := range specs {
 		fmt.Printf("%d. Querying %s (%s over %s)...\n",
