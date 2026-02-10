@@ -75,7 +75,7 @@ func (q *QuerySpec) Validate() error {
 	}
 
 	if !strings.Contains(q.Domain, ".") {
-		return errors.New("domain must contain at least on e dot")
+		return errors.New("domain must contain at least one dot")
 	}
 
 	if strings.Contains(q.Domain, " ") {

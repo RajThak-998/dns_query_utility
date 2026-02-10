@@ -1,0 +1,7 @@
+domain,ip_version,transport
+google.com,ipv4,udp
+cloudflare.com,ipv6,tcp
+example.com,ipv4,tcp
+github.com,ipv6,udp
+invalid-domain,ipv4,udp
+reddit.com,ipv4,http
