@@ -19,6 +19,7 @@ func ExecuteQuery(spec QuerySpec, cfg config.Config) result.QueryResult {
 		Status:    result.StatusError,
 	}
 
+	// Select appropriate DNS server based on IP version
 	var dnsServer string
 	if spec.IPVersion == IPv4 {
 		dnsServer = cfg.DNSServerIPv4
@@ -85,9 +86,8 @@ func ExecuteQuery(spec QuerySpec, cfg config.Config) result.QueryResult {
 			!strings.Contains(answer, "PTR") {
 			// IPv6 address (contains colons but not a record label)
 			ips = append(ips, answer)
-		} else if !strings.ContainsAny(answer, "ABCDEFGHIJKLMNOPQRSTUVWXYZ:") ||
-			// Pure IPv4 (only dots and digits)
-			isIPv4(answer) {
+		} else if isIPv4(answer) {
+			// IPv4 address (only dots and digits)
 			ips = append(ips, answer)
 		} else {
 			records = append(records, answer)
@@ -96,19 +96,77 @@ func ExecuteQuery(spec QuerySpec, cfg config.Config) result.QueryResult {
 
 	res.ResolvedIPs = ips
 	res.Records = records
-	res.Status = result.StatusSuccess
+
+	// Determine status based on RCODE and answer content
+	res.Status = determineStatus(rcode, ips, records)
+
+	// Set error messages for non-success status
+	switch res.Status {
+	case result.StatusNXDomain:
+		res.Error = "domain does not exist"
+	case result.StatusServFail:
+		res.Error = "DNS server failure"
+	case result.StatusRefused:
+		res.Error = "query refused by server"
+	case result.StatusNoAnswer:
+		if len(records) > 0 {
+			res.Error = fmt.Sprintf("no A/AAAA records found (only: %v)", records)
+		} else {
+			res.Error = "no A/AAAA records found"
+		}
+	}
 
 	return res
 }
 
+// determineStatus maps RCODE and answer content to semantic status
+func determineStatus(rcode int, ips []string, records []string) result.Status {
+	// DNS RCODE meanings (RFC 1035):
+	// 0 = No error
+	// 1 = Format error
+	// 2 = Server failure
+	// 3 = Name Error (NXDOMAIN)
+	// 4 = Not Implemented
+	// 5 = Refused
+
+	switch rcode {
+	case 0:
+		// Success RCODE, check if we have actual IP addresses
+		if len(ips) > 0 {
+			return result.StatusSuccess
+		}
+		// RCODE=0 but no A/AAAA records (might have CNAME, SOA, etc.)
+		return result.StatusNoAnswer
+
+	case 3:
+		// NXDOMAIN - domain doesn't exist
+		return result.StatusNXDomain
+
+	case 2:
+		// SERVFAIL - DNS server encountered an error
+		return result.StatusServFail
+
+	case 5:
+		// REFUSED - server refused to answer
+		return result.StatusRefused
+
+	default:
+		// Other RCODEs (1=format error, 4=not implemented, 6+=extended codes)
+		return result.StatusError
+	}
+}
+
 // isIPv4 checks if a string looks like an IPv4 address
 func isIPv4(s string) bool {
+	if !strings.Contains(s, ".") {
+		return false
+	}
 	for _, c := range s {
 		if c != '.' && (c < '0' || c > '9') {
 			return false
 		}
 	}
-	return strings.Contains(s, ".")
+	return true
 }
 
 func formatServerAddress(server string, port int) string {

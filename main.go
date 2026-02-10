@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== DNS Query Utility ===")
+	fmt.Println("=== DNS Query Utility ===\n")
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <csv_file>")
@@ -54,24 +54,67 @@ func main() {
 
 		result := query.ExecuteQuery(spec, cfg)
 
-		fmt.Printf("   Status:        %s\n", result.Status)
+		// Print status with visual indicator
+		statusIcon := getStatusIcon(string(result.Status))
+		fmt.Printf("   Status:        %s %s\n", statusIcon, result.Status)
 		fmt.Printf("   Latency:       %v\n", result.Latency)
 		fmt.Printf("   Response Code: %d\n", result.ResponseCode)
 
-		if result.Status == "success" {
+		// Display results based on status
+		switch result.Status {
+		case "success":
 			if len(result.Records) > 0 {
 				fmt.Printf("   Records:       %v\n", result.Records)
 			}
-			if len(result.ResolvedIPs) > 0 {
-				fmt.Printf("   Resolved IPs:  %v\n", result.ResolvedIPs)
-			} else if len(result.Records) == 0 {
-				fmt.Printf("   Resolved IPs:  (none)\n")
+			fmt.Printf("   Resolved IPs:  %v\n", result.ResolvedIPs)
+
+		case "no_answer":
+			if len(result.Records) > 0 {
+				fmt.Printf("   Records:       %v\n", result.Records)
 			}
-		} else if result.Error != "" {
+			fmt.Printf("   Note:          %s\n", result.Error)
+
+		case "nxdomain":
+			fmt.Printf("   Error:         %s\n", result.Error)
+
+		case "servfail":
+			fmt.Printf("   Error:         %s\n", result.Error)
+
+		case "refused":
+			fmt.Printf("   Error:         %s\n", result.Error)
+
+		case "timeout":
+			fmt.Printf("   Error:         %s\n", result.Error)
+
+		case "error":
 			fmt.Printf("   Error:         %s\n", result.Error)
 		}
+
 		fmt.Println()
 	}
 
 	fmt.Println("Query execution complete!")
+}
+
+// getStatusIcon returns a visual indicator for each status
+func getStatusIcon(status string) string {
+	switch status {
+	case "success":
+		return "✓"
+	case "no_answer":
+		return "⚠"
+	case "nxdomain":
+		return "✗"
+	case "servfail":
+		return "✗"
+	case "refused":
+		return "✗"
+	case "timeout":
+		return "⏱"
+	case "error":
+		return "✗"
+	default:
+		return "?"
+	}
+
 }
