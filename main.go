@@ -1,53 +1,77 @@
 package main
 
 import (
-    "dns_query_utility/parser"
-    "dns_query_utility/query"
-    "fmt"
-    "os"
+	"dns_query_utility/config"
+	"dns_query_utility/parser"
+	"dns_query_utility/query"
+	"fmt"
+	"os"
+	"time"
 )
 
 func main() {
-    fmt.Println("=== Phase 3: DNS Packet Construction ===\n")
+	fmt.Println("=== DNS Query Utility ===\n")
 
-    // Check if CSV file path is provided
-    if len(os.Args) < 2 {
-        fmt.Println("Usage: go run main.go <csv_file>")
-        fmt.Println("Example: go run main.go queries.csv")
-        os.Exit(1)
-    }
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <csv_file>")
+		fmt.Println("Example: go run main.go queries.csv")
+		os.Exit(1)
+	}
 
-    csvFile := os.Args[1]
+	csvFile := os.Args[1]
 
-    // Parse CSV
-    specs, err := parser.ParseCSV(csvFile)
-    if err != nil {
-        fmt.Printf("Error parsing CSV: %v\n", err)
-        os.Exit(1)
-    }
+	cfg := config.Config{
+		DNSServerIPv4: "8.8.8.8",
+		DNSServerIPv6: "2001:4860:4860::8888",
+		DNSPort:       53,
+		Timeout:       5 * time.Second,
+		RetryCount:    2,
+		WorkerCount:   5,
+	}
 
-    fmt.Println("Building DNS query packets:")
-    fmt.Println("---------------------------")
+	if err := cfg.Validate(); err != nil {
+		fmt.Printf("Configuration error: %v\n", err)
+		os.Exit(1)
+	}
 
-    // Build DNS packet for each query spec
-    for i, spec := range specs {
-        packet, err := query.BuildDNSQuery(spec.Domain, spec.IPVersion)
-        if err != nil {
-            fmt.Printf("%d. %s - Error: %v\n", i+1, spec.Domain, err)
-            continue
-        }
+	fmt.Printf("DNS Servers:\n")
+	fmt.Printf("  IPv4: %s:%d\n", cfg.DNSServerIPv4, cfg.DNSPort)
+	fmt.Printf("  IPv6: %s:%d\n", cfg.DNSServerIPv6, cfg.DNSPort)
+	fmt.Printf("Timeout: %v\n\n", cfg.Timeout)
 
-        // Display packet info
-        fmt.Printf("%d. %s (%s) - Packet size: %d bytes\n",
-            i+1, spec.Domain, spec.IPVersion, len(packet))
+	specs, err := parser.ParseCSV(csvFile)
+	if err != nil {
+		fmt.Printf("Error parsing CSV: %v\n", err)
+		os.Exit(1)
+	}
 
-        // Show first 20 bytes in hex format
-        fmt.Print("   Hex dump: ")
-        for j := 0; j < 20 && j < len(packet); j++ {
-            fmt.Printf("%02x ", packet[j])
-        }
-        fmt.Println("...")
-    }
+	fmt.Println("\nExecuting DNS Queries:")
+	fmt.Println("======================\n")
 
-    fmt.Printf("\nSuccessfully built %d DNS query packets\n", len(specs))
+	for i, spec := range specs {
+		fmt.Printf("%d. Querying %s (%s over %s)...\n",
+			i+1, spec.Domain, spec.IPVersion, spec.Transport)
+
+		result := query.ExecuteQuery(spec, cfg)
+
+		fmt.Printf("   Status:        %s\n", result.Status)
+		fmt.Printf("   Latency:       %v\n", result.Latency)
+		fmt.Printf("   Response Code: %d\n", result.ResponseCode)
+
+		if result.Status == "success" {
+			if len(result.Records) > 0 {
+				fmt.Printf("   Records:       %v\n", result.Records)
+			}
+			if len(result.ResolvedIPs) > 0 {
+				fmt.Printf("   Resolved IPs:  %v\n", result.ResolvedIPs)
+			} else if len(result.Records) == 0 {
+				fmt.Printf("   Resolved IPs:  (none)\n")
+			}
+		} else if result.Error != "" {
+			fmt.Printf("   Error:         %s\n", result.Error)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("Query execution complete!")
 }
