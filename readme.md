@@ -125,3 +125,185 @@ The tool can be distributed as a single compiled binary with no external runtime
 ## Summary
 
 The project provides a way to define DNS query scenarios declaratively, execute them in a controlled and repeatable manner, and produce detailed results that describe how a DNS server responds under different conditions.
+
+
+# Implementation Blueprint
+
+The implementation is divided into phases to keep the codebase clean, testable, and scalable.
+
+---
+
+## Phase 1: Foundation & Data Models
+
+**Goal:** Define core data structures before writing any logic.
+
+### `config/config.go`
+
+* Define `Config` struct with:
+
+  * DNS server address
+  * DNS server port
+  * Timeout
+  * Retry count
+  * Worker count
+* Add validation methods to ensure configuration values are sensible.
+
+### `query/spec.go`
+
+* Define `QuerySpec` struct:
+
+  * Domain name
+  * IP version enum (`IPv4`, `IPv6`)
+  * Transport enum (`UDP`, `TCP`)
+* Define enums for IP version and transport.
+* Add validation methods for query specifications.
+
+### `result/result.go`
+
+* Define `QueryResult` struct containing:
+
+  * Domain
+  * Transport
+  * IP version
+  * DNS response code
+  * Resolved IP addresses
+  * Query latency
+  * Status / error information
+* Add JSON marshaling tags for structured output.
+
+**Why start here?**
+Clear data contracts between components ensure that each layer knows exactly what it receives and what it produces.
+
+---
+
+## Phase 2: CSV Parsing
+
+**Goal:** Read and validate CSV input into query specifications.
+
+### `parser/csv.go`
+
+* Function: `ParseCSV(filepath string) ([]query.QuerySpec, error)`
+* Read CSV file from disk.
+* For each row:
+
+  * Parse domain name
+  * Parse IP version
+  * Parse transport protocol
+* Validate each field (domain format, enum values).
+* Skip invalid rows while logging warnings.
+* Return a slice of valid `QuerySpec` objects.
+
+**Why now?**
+Input parsing is independent of DNS logic and can be tested immediately using sample CSV files.
+
+---
+
+## Phase 3: DNS Packet Construction
+
+**Goal:** Build raw DNS query packets programmatically.
+
+### `query/builder.go`
+
+* Function: `BuildDNSQuery(domain string, queryType uint16) ([]byte, error)`
+* Construct DNS header:
+
+  * Transaction ID
+  * Flags
+  * Question count
+* Encode domain name using DNS label format (length-prefixed labels).
+* Add query type:
+
+  * `A` for IPv4
+  * `AAAA` for IPv6
+* Add query class (`IN`).
+* Return raw DNS packet bytes ready to be sent over the network.
+
+**Why now?**
+This phase is pure computation with no network I/O and can be unit tested easily. DNS packet formats are standardized (RFC 1035).
+
+---
+
+## Phase 4: Query Execution
+
+**Goal:** Send DNS packets and handle responses with explicit transport and IP control.
+
+### `query/executor.go`
+
+* Function: `ExecuteQuery(spec QuerySpec, config Config) QueryResult`
+* Select socket type based on transport and IP version:
+
+  * UDP over IPv4: `net.DialUDP("udp4", ...)`
+  * UDP over IPv6: `net.DialUDP("udp6", ...)`
+  * TCP over IPv4: `net.DialTCP("tcp4", ...)`
+  * TCP over IPv6: `net.DialTCP("tcp6", ...)`
+* Apply socket timeouts.
+* Build DNS packet using `builder.BuildDNSQuery`.
+* Send DNS request.
+* Receive DNS response:
+
+  * Handle TCP length prefix if applicable.
+* Parse response:
+
+  * Extract response code (RCODE)
+  * Extract answer records
+* Measure latency between send and receive.
+* Return populated `QueryResult`.
+
+**Why now?**
+With data models and packet construction in place, this phase focuses solely on network I/O and response parsing.
+
+---
+
+## Phase 5: Worker Pool
+
+**Goal:** Execute DNS queries concurrently while controlling resource usage.
+
+### `worker/pool.go`
+
+* Function: `ProcessQueries(specs []QuerySpec, config Config, workerCount int) []QueryResult`
+* Create buffered channels for:
+
+  * Input query specifications
+  * Output query results
+* Spawn a fixed number of worker goroutines.
+* Each worker:
+
+  * Reads a `QuerySpec` from the input channel
+  * Calls `executor.ExecuteQuery`
+  * Sends the resulting `QueryResult` to the output channel
+* Main goroutine:
+
+  * Feeds all query specs into the input channel
+  * Collects all results from the output channel
+* Return the full list of results.
+
+**Why now?**
+Concurrency is easier to add once serial execution works. This phase parallelizes execution without changing DNS logic.
+
+---
+
+## Phase 6: Main Entry Point
+
+**Goal:** Wire all components together with a CLI interface.
+
+### `main.go`
+
+* Parse command-line flags:
+
+  * CSV file path
+  * DNS server address
+  * DNS server port
+  * Timeout
+  * Retry count
+  * Worker count
+* Load and validate configuration.
+* Call `parser.ParseCSV` to obtain query specifications.
+* Call `worker.ProcessQueries` to execute all queries.
+* Output each `QueryResult` as JSON to stdout or write to a file.
+* Handle errors gracefully and return a non-zero exit code on failure.
+
+---
+
+## Summary
+
+This phased approach ensures the utility is built incrementally, with clear separation of concerns. Each phase can be developed, tested, and validated independently while contributing directly to the final working system.
