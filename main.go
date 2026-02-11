@@ -3,7 +3,8 @@ package main
 import (
     "dns_query_utility/config"
     "dns_query_utility/parser"
-    "dns_query_utility/query"
+    "dns_query_utility/result"
+    "dns_query_utility/worker"
     "fmt"
     "os"
     "strings"
@@ -34,7 +35,7 @@ func main() {
     var dnsServers []string
     if dnsArg != "" {
         dnsServers = strings.Fields(dnsArg)
-        fmt.Printf("Parsed DNS arguments: %v\n", dnsServers)
+        fmt.Printf("Parsed DNS arguments: %v\n", dnsArg)
     }
 
     // Parse DNS configuration
@@ -55,6 +56,16 @@ func main() {
         fmt.Println("Using custom DNS servers")
     }
 
+    // Parse CSV to get query count FIRST (before creating config)
+    specs, err := parser.ParseCSV(csvFile)
+    if err != nil {
+        fmt.Printf("\nError parsing CSV: %v\n", err)
+        os.Exit(1)
+    }
+
+    // Auto-calculate optimal worker count based on query count
+    workerCount := config.CalculateOptimalWorkers(len(specs))
+
     // Create configuration
     cfg := config.Config{
         DNSServerIPv4: ipv4Server,
@@ -62,7 +73,7 @@ func main() {
         DNSPort:       ipv4Port,
         Timeout:       5 * time.Second,
         RetryCount:    2,
-        WorkerCount:   5,
+        WorkerCount:   workerCount, // Auto-calculated!
     }
 
     if err := cfg.Validate(); err != nil {
@@ -71,59 +82,97 @@ func main() {
     }
 
     fmt.Printf("\nDNS Configuration:\n")
-    fmt.Printf("  IPv4 Server: %s:%d\n", cfg.DNSServerIPv4, ipv4Port)
-    fmt.Printf("  IPv6 Server: %s:%d\n", cfg.DNSServerIPv6, ipv6Port)
-    fmt.Printf("  Timeout:     %v\n", cfg.Timeout)
+    fmt.Printf("  IPv4 Server:   %s:%d\n", cfg.DNSServerIPv4, ipv4Port)
+    fmt.Printf("  IPv6 Server:   %s:%d\n", cfg.DNSServerIPv6, ipv6Port)
+    fmt.Printf("  Timeout:       %v\n", cfg.Timeout)
+    fmt.Printf("  Query Count:   %d\n", len(specs))
+    fmt.Printf("  Workers:       %d (auto-scaled)\n\n", cfg.WorkerCount)
 
-    specs, err := parser.ParseCSV(csvFile)
-    if err != nil {
-        fmt.Printf("\nError parsing CSV: %v\n", err)
-        os.Exit(1)
-    }
+    fmt.Println("Executing DNS Queries (Concurrent):")
+    fmt.Println("====================================\n")
 
-    fmt.Println("\nExecuting DNS Queries:")
-    fmt.Println("======================")
+    // Execute all queries concurrently with progress
+    startTime := time.Now()
+    results := worker.ExecuteWithProgress(specs, cfg)
+    totalDuration := time.Since(startTime)
 
-    for i, spec := range specs {
-        fmt.Printf("%d. Querying %s (type=%s transport=%s network=%s)...\n",
-            i+1, spec.Domain, spec.QueryType, spec.Transport, spec.IPVersion)
+    fmt.Printf("\nAll queries completed in %v\n", totalDuration)
+    fmt.Println("\nDetailed Results:")
+    fmt.Println("=================\n")
 
-        result := query.ExecuteQuery(spec, cfg)
+    // Display results
+    for i, res := range results {
+        fmt.Printf("%d. %s (type=%s transport=%s network=%s)\n",
+            i+1, res.Domain, res.QueryType, res.Transport, res.IPVersion)
 
-        statusIcon := getStatusIcon(string(result.Status))
-        fmt.Printf("   Status:        %s %s\n", statusIcon, result.Status)
-        fmt.Printf("   Latency:       %v\n", result.Latency)
-        fmt.Printf("   Response Code: %d\n", result.ResponseCode)
+        statusIcon := getStatusIcon(string(res.Status))
+        fmt.Printf("   Status:        %s %s\n", statusIcon, res.Status)
+        fmt.Printf("   Latency:       %v\n", res.Latency)
+        fmt.Printf("   Response Code: %d\n", res.ResponseCode)
 
-        switch result.Status {
+        switch res.Status {
         case "success":
-            if len(result.Records) > 0 {
-                fmt.Printf("   Records:       %v\n", result.Records)
+            if len(res.Records) > 0 {
+                fmt.Printf("   Records:       %v\n", res.Records)
             }
-            if len(result.ResolvedIPs) > 0 {
-                fmt.Printf("   Resolved IPs:  %v\n", result.ResolvedIPs)
+            if len(res.ResolvedIPs) > 0 {
+                fmt.Printf("   Resolved IPs:  %v\n", res.ResolvedIPs)
             }
 
         case "no_answer":
-            if len(result.Records) > 0 {
-                fmt.Printf("   Records:       %v\n", result.Records)
+            if len(res.Records) > 0 {
+                fmt.Printf("   Records:       %v\n", res.Records)
             }
-            fmt.Printf("   Note:          %s\n", result.Error)
+            fmt.Printf("   Note:          %s\n", res.Error)
 
         default:
-            if result.Error != "" {
-                fmt.Printf("   Error:         %s\n", result.Error)
+            if res.Error != "" {
+                fmt.Printf("   Error:         %s\n", res.Error)
             }
         }
 
         fmt.Println()
     }
 
-    fmt.Println("Query execution complete!")
+    // Summary statistics
+    printSummary(results, totalDuration, cfg.WorkerCount)
+}
+
+func printSummary(results []result.QueryResult, totalDuration time.Duration, workerCount int) {
+    fmt.Println("Summary:")
+    fmt.Println("========")
+
+    successCount := 0
+    noAnswerCount := 0
+    errorCount := 0
+    var totalLatency time.Duration
+
+    for _, res := range results {
+        totalLatency += res.Latency
+
+        switch res.Status {
+        case "success":
+            successCount++
+        case "no_answer":
+            noAnswerCount++
+        default:
+            errorCount++
+        }
+    }
+
+    avgLatency := totalLatency / time.Duration(len(results))
+
+    fmt.Printf("Total Queries:    %d\n", len(results))
+    fmt.Printf("Workers Used:     %d\n", workerCount)
+    fmt.Printf("Successful:       %d\n", successCount)
+    fmt.Printf("No Answer:        %d\n", noAnswerCount)
+    fmt.Printf("Errors:           %d\n", errorCount)
+    fmt.Printf("Total Time:       %v\n", totalDuration)
+    fmt.Printf("Average Latency:  %v\n", avgLatency)
+    fmt.Printf("Queries/Second:   %.2f\n", float64(len(results))/totalDuration.Seconds())
 }
 
 // parseArgs manually parses CLI arguments in any order
-// Returns: csvFile, dnsArg, showHelp
 func parseArgs(args []string) (string, string, bool) {
     var csvFile string
     var dnsArg string
@@ -139,7 +188,6 @@ func parseArgs(args []string) (string, string, bool) {
             i++
 
         case arg == "--dns":
-            // Next argument is the DNS server value
             if i+1 < len(args) {
                 i++
                 dnsArg = args[i]
@@ -150,18 +198,15 @@ func parseArgs(args []string) (string, string, bool) {
             i++
 
         case strings.HasPrefix(arg, "--dns="):
-            // Handle --dns=value format
             dnsArg = strings.TrimPrefix(arg, "--dns=")
             i++
 
         case strings.HasPrefix(arg, "-"):
-            // Unknown flag
             fmt.Printf("Error: unknown flag '%s'\n", arg)
             fmt.Println("Run 'dns_query_utility --help' for usage")
             os.Exit(1)
 
         default:
-            // Positional argument = CSV file
             if csvFile == "" {
                 csvFile = arg
             } else {
@@ -190,11 +235,16 @@ func printUsage() {
     fmt.Println("      Default: 8.8.8.8:53 and 2001:4860:4860::8888:53")
     fmt.Println("\n  -h, --help")
     fmt.Println("      Show this help message")
+    fmt.Println("\nFeatures:")
+    fmt.Println("  • Auto-scaling worker pool (1-50 workers based on query count)")
+    fmt.Println("  • Concurrent execution for maximum throughput")
+    fmt.Println("  • Real-time progress tracking")
+    fmt.Println("  • Support for all DNS record types (A, AAAA, MX, TXT, NS, etc.)")
+    fmt.Println("  • Independent transport (UDP/TCP) and network (IPv4/IPv6) selection")
     fmt.Println("\nExamples:")
     fmt.Println("  dns_query_utility queries.csv")
     fmt.Println("  dns_query_utility queries.csv --dns 9.9.9.9")
     fmt.Println("  dns_query_utility queries.csv --dns \"1.1.1.1 2606:4700:4700::1111\"")
-    fmt.Println("  dns_query_utility queries.csv --dns 192.168.1.1:5353")
     fmt.Println("\nPopular Public DNS Servers:")
     fmt.Println("  Google:      8.8.8.8 / 2001:4860:4860::8888")
     fmt.Println("  Cloudflare:  1.1.1.1 / 2606:4700:4700::1111")

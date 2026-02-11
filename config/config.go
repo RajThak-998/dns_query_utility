@@ -9,6 +9,15 @@ import (
     "time"
 )
 
+const (
+    // Worker pool limits
+    MinWorkers = 1   // Minimum concurrent workers
+    MaxWorkers = 50  // Maximum concurrent workers (safe for most machines)
+    
+    // Auto-scaling: 1 worker per N queries
+    WorkersPerQuery = 5 // For every 5 queries, add 1 worker
+)
+
 // Config holds global settings that apply to all DNS queries
 type Config struct {
     DNSServerIPv4 string        // IPv4 DNS server address
@@ -16,7 +25,44 @@ type Config struct {
     DNSPort       int           // DNS port (default 53)
     Timeout       time.Duration // Query timeout
     RetryCount    int           // Number of retries for failed queries
-    WorkerCount   int           // Number of concurrent workers
+    WorkerCount   int           // Number of concurrent workers (auto-calculated if 0)
+}
+
+// CalculateOptimalWorkers determines the best worker count based on query count
+func CalculateOptimalWorkers(queryCount int) int {
+    if queryCount <= 0 {
+        return MinWorkers
+    }
+    
+    // Strategy: 1 worker for every WorkersPerQuery queries
+    // For small batches: use exactly queryCount workers
+    // For large batches: scale up but cap at MaxWorkers
+    
+    var workers int
+    
+    if queryCount <= 10 {
+        // For small batches, use exactly the number of queries
+        workers = queryCount
+    } else if queryCount <= 50 {
+        // Medium batches: 20% of queries as workers
+        workers = queryCount / WorkersPerQuery
+        if workers < 5 {
+            workers = 5
+        }
+    } else {
+        // Large batches: scale logarithmically
+        workers = (queryCount / WorkersPerQuery) + 5
+    }
+    
+    // Ensure within bounds
+    if workers < MinWorkers {
+        workers = MinWorkers
+    }
+    if workers > MaxWorkers {
+        workers = MaxWorkers
+    }
+    
+    return workers
 }
 
 // Validate checks if the configuration values are sensible
@@ -37,26 +83,20 @@ func (c *Config) Validate() error {
         return errors.New("retry count cannot be negative")
     }
 
-    if c.WorkerCount < 1 {
-        return errors.New("worker count must be at least 1")
+    if c.WorkerCount < 0 {
+        return errors.New("worker count cannot be negative")
     }
 
     return nil
 }
 
 // ParseDNSServers parses DNS server arguments from CLI
-// Supports:
-//   - Single server: "9.9.9.9" → use for both IPv4 and IPv6
-//   - With port: "9.9.9.9:54" → extract port
-//   - Two servers: "9.9.9.9", "2620:fe::fe" → separate IPv4/IPv6
-//   - IPv6 with port: "[2620:fe::fe]:5353"
 func ParseDNSServers(args ...string) (ipv4Server string, ipv4Port int, ipv6Server string, ipv6Port int, err error) {
     // Defaults
     ipv4Port = 53
     ipv6Port = 53
 
     if len(args) == 0 {
-        // No arguments - caller will use defaults
         return "", 53, "", 53, nil
     }
 
@@ -70,24 +110,14 @@ func ParseDNSServers(args ...string) (ipv4Server string, ipv4Port int, ipv6Serve
         return "", 0, "", 0, fmt.Errorf("invalid DNS server '%s': %w", args[0], err)
     }
 
-    // Detect if first server is IPv4 or IPv6
     isIPv6_1 := isIPv6Address(server1)
 
     // If only one server provided, use it for both
     if len(args) == 1 {
-        if isIPv6_1 {
-            // Single IPv6 server - use for both
-            ipv4Server = server1
-            ipv4Port = port1
-            ipv6Server = server1
-            ipv6Port = port1
-        } else {
-            // Single IPv4 server - use for both
-            ipv4Server = server1
-            ipv4Port = port1
-            ipv6Server = server1
-            ipv6Port = port1
-        }
+        ipv4Server = server1
+        ipv4Port = port1
+        ipv6Server = server1
+        ipv6Port = port1
         return ipv4Server, ipv4Port, ipv6Server, ipv6Port, nil
     }
 
@@ -101,26 +131,22 @@ func ParseDNSServers(args ...string) (ipv4Server string, ipv4Port int, ipv6Serve
 
     // Assign based on IP version
     if !isIPv6_1 && isIPv6_2 {
-        // First is IPv4, second is IPv6
         ipv4Server = server1
         ipv4Port = port1
         ipv6Server = server2
         ipv6Port = port2
     } else if isIPv6_1 && !isIPv6_2 {
-        // First is IPv6, second is IPv4
         ipv4Server = server2
         ipv4Port = port2
         ipv6Server = server1
         ipv6Port = port1
     } else if !isIPv6_1 && !isIPv6_2 {
-        // Both IPv4 - use first for both
         ipv4Server = server1
         ipv4Port = port1
         ipv6Server = server1
         ipv6Port = port1
         fmt.Println("Warning: Both DNS servers are IPv4, using first for IPv6 queries as well")
     } else {
-        // Both IPv6 - use first for both
         ipv4Server = server1
         ipv4Port = port1
         ipv6Server = server1
@@ -131,8 +157,6 @@ func ParseDNSServers(args ...string) (ipv4Server string, ipv4Port int, ipv6Serve
     return ipv4Server, ipv4Port, ipv6Server, ipv6Port, nil
 }
 
-// parseServerAddress parses "IP" or "IP:PORT" or "[IPv6]:PORT"
-// Returns: (IP, port, error)
 func parseServerAddress(input string) (string, int, error) {
     input = strings.TrimSpace(input)
 
@@ -148,7 +172,6 @@ func parseServerAddress(input string) (string, int, error) {
             return "", 0, fmt.Errorf("invalid IPv6 address: %s", ipv6)
         }
 
-        // Check for port after bracket
         if len(input) > closeBracket+1 {
             if input[closeBracket+1] != ':' {
                 return "", 0, errors.New("expected ':' after IPv6 bracket")
@@ -167,7 +190,6 @@ func parseServerAddress(input string) (string, int, error) {
     // Handle IPv4:PORT or plain IP
     parts := strings.Split(input, ":")
 
-    // Plain IP without port
     if len(parts) == 1 {
         ip := parts[0]
         if net.ParseIP(ip) == nil {
@@ -176,7 +198,6 @@ func parseServerAddress(input string) (string, int, error) {
         return ip, 53, nil
     }
 
-    // IPv4:PORT
     if len(parts) == 2 {
         ip := parts[0]
         if net.ParseIP(ip) == nil {
@@ -191,7 +212,7 @@ func parseServerAddress(input string) (string, int, error) {
         return ip, port, nil
     }
 
-    // Could be plain IPv6 without brackets (2620:fe::fe)
+    // Could be plain IPv6 without brackets
     if net.ParseIP(input) != nil {
         return input, 53, nil
     }
@@ -199,7 +220,6 @@ func parseServerAddress(input string) (string, int, error) {
     return "", 0, errors.New("invalid format (use IP, IP:PORT, or [IPv6]:PORT)")
 }
 
-// isIPv6Address checks if an IP string is IPv6
 func isIPv6Address(ip string) bool {
     parsedIP := net.ParseIP(ip)
     if parsedIP == nil {
