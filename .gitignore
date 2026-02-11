@@ -1,1 +1,4 @@
 commands.txt
+*.mod
+*.sum
+dns_query_utility

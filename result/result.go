@@ -1,39 +1,31 @@
 package result
 
-import (
-    "encoding/json"
-    "time"
-)
+import "time"
 
-type Status string
+// QueryStatus represents the outcome of a DNS query
+type QueryStatus string
 
 const (
-    StatusSuccess  Status = "success"
-    StatusNoAnswer Status = "no_answer"
-    StatusNXDomain Status = "nxdomain"
-    StatusServFail Status = "servfail"
-    StatusRefused  Status = "refused"
-    StatusTimeout  Status = "timeout"
-    StatusError    Status = "error"
+    StatusSuccess  QueryStatus = "success"
+    StatusNoAnswer QueryStatus = "no_answer"
+    StatusNXDomain QueryStatus = "nxdomain"
+    StatusServFail QueryStatus = "servfail"
+    StatusRefused  QueryStatus = "refused"
+    StatusTimeout  QueryStatus = "timeout"
+    StatusError    QueryStatus = "error"
 )
 
+// QueryResult holds the outcome of a single DNS query
 type QueryResult struct {
     Domain       string        `json:"domain"`
     QueryType    string        `json:"query_type"`
     Transport    string        `json:"transport"`
-    IPVersion    string        `json:"ip_version"`
-    ResponseCode int           `json:"response_code"`
-    ResolvedIPs  []string      `json:"resolved_ips"`
-    Records      []string      `json:"records,omitempty"`
+    IPVersion    string        `json:"network"`
+    Status       QueryStatus   `json:"status"`
     Latency      time.Duration `json:"latency_ms"`
-    Status       Status        `json:"status"`
+    ResponseCode int           `json:"response_code"`
+    ResolvedIPs  []string      `json:"resolved_ips,omitempty"`
+    Records      []string      `json:"records,omitempty"`
     Error        string        `json:"error,omitempty"`
-}
-
-func (r *QueryResult) ToJSON() (string, error) {
-    bytes, err := json.MarshalIndent(r, "", "  ")
-    if err != nil {
-        return "", err
-    }
-    return string(bytes), nil
+    Timestamp    time.Time     `json:"timestamp"`
 }
