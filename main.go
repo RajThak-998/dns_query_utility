@@ -6,24 +6,60 @@ import (
     "dns_query_utility/query"
     "fmt"
     "os"
+    "strings"
     "time"
 )
 
 func main() {
-    fmt.Println("=== DNS Query Utility ===")
+    // Parse arguments manually to allow any order
+    csvFile, dnsArg, showHelp := parseArgs(os.Args[1:])
 
-    if len(os.Args) < 2 {
-        fmt.Println("Usage: go run main.go <csv_file>")
-        fmt.Println("Example: go run main.go queries.csv")
+    // Show help if requested
+    if showHelp {
+        printUsage()
+        os.Exit(0)
+    }
+
+    // Check for CSV file
+    if csvFile == "" {
+        fmt.Println("Error: CSV file not specified")
+        fmt.Println("\nUsage: dns_query_utility <csv_file> [options]")
+        fmt.Println("Run 'dns_query_utility --help' for more information")
         os.Exit(1)
     }
 
-    csvFile := os.Args[1]
+    fmt.Println("=== DNS Query Utility ===")
 
+    // Parse DNS servers from --dns flag
+    var dnsServers []string
+    if dnsArg != "" {
+        dnsServers = strings.Fields(dnsArg)
+        fmt.Printf("Parsed DNS arguments: %v\n", dnsServers)
+    }
+
+    // Parse DNS configuration
+    ipv4Server, ipv4Port, ipv6Server, ipv6Port, err := config.ParseDNSServers(dnsServers...)
+    if err != nil {
+        fmt.Printf("\nError parsing DNS servers: %v\n", err)
+        os.Exit(1)
+    }
+
+    // Apply defaults if no DNS servers provided
+    if ipv4Server == "" && ipv6Server == "" {
+        ipv4Server = "8.8.8.8"
+        ipv4Port = 53
+        ipv6Server = "2001:4860:4860::8888"
+        ipv6Port = 53
+        fmt.Println("Using default DNS servers (Google Public DNS)")
+    } else {
+        fmt.Println("Using custom DNS servers")
+    }
+
+    // Create configuration
     cfg := config.Config{
-        DNSServerIPv4: "8.8.8.8",
-        DNSServerIPv6: "2001:4860:4860::8888",
-        DNSPort:       53,
+        DNSServerIPv4: ipv4Server,
+        DNSServerIPv6: ipv6Server,
+        DNSPort:       ipv4Port,
         Timeout:       5 * time.Second,
         RetryCount:    2,
         WorkerCount:   5,
@@ -34,14 +70,14 @@ func main() {
         os.Exit(1)
     }
 
-    fmt.Printf("DNS Servers:\n")
-    fmt.Printf("  IPv4: %s:%d\n", cfg.DNSServerIPv4, cfg.DNSPort)
-    fmt.Printf("  IPv6: %s:%d\n", cfg.DNSServerIPv6, cfg.DNSPort)
-    fmt.Printf("Timeout: %v\n\n", cfg.Timeout)
+    fmt.Printf("\nDNS Configuration:\n")
+    fmt.Printf("  IPv4 Server: %s:%d\n", cfg.DNSServerIPv4, ipv4Port)
+    fmt.Printf("  IPv6 Server: %s:%d\n", cfg.DNSServerIPv6, ipv6Port)
+    fmt.Printf("  Timeout:     %v\n", cfg.Timeout)
 
     specs, err := parser.ParseCSV(csvFile)
     if err != nil {
-        fmt.Printf("Error parsing CSV: %v\n", err)
+        fmt.Printf("\nError parsing CSV: %v\n", err)
         os.Exit(1)
     }
 
@@ -84,6 +120,86 @@ func main() {
     }
 
     fmt.Println("Query execution complete!")
+}
+
+// parseArgs manually parses CLI arguments in any order
+// Returns: csvFile, dnsArg, showHelp
+func parseArgs(args []string) (string, string, bool) {
+    var csvFile string
+    var dnsArg string
+    showHelp := false
+
+    i := 0
+    for i < len(args) {
+        arg := args[i]
+
+        switch {
+        case arg == "--help" || arg == "-h":
+            showHelp = true
+            i++
+
+        case arg == "--dns":
+            // Next argument is the DNS server value
+            if i+1 < len(args) {
+                i++
+                dnsArg = args[i]
+            } else {
+                fmt.Println("Error: --dns requires a value")
+                os.Exit(1)
+            }
+            i++
+
+        case strings.HasPrefix(arg, "--dns="):
+            // Handle --dns=value format
+            dnsArg = strings.TrimPrefix(arg, "--dns=")
+            i++
+
+        case strings.HasPrefix(arg, "-"):
+            // Unknown flag
+            fmt.Printf("Error: unknown flag '%s'\n", arg)
+            fmt.Println("Run 'dns_query_utility --help' for usage")
+            os.Exit(1)
+
+        default:
+            // Positional argument = CSV file
+            if csvFile == "" {
+                csvFile = arg
+            } else {
+                fmt.Printf("Error: unexpected argument '%s'\n", arg)
+                os.Exit(1)
+            }
+            i++
+        }
+    }
+
+    return csvFile, dnsArg, showHelp
+}
+
+func printUsage() {
+    fmt.Println("DNS Query Utility")
+    fmt.Println("\nUsage:")
+    fmt.Println("  dns_query_utility <csv_file> [options]")
+    fmt.Println("  dns_query_utility [options] <csv_file>")
+    fmt.Println("\nOptions:")
+    fmt.Println("  --dns \"<server> [<ipv6_server>]\"")
+    fmt.Println("      DNS server(s) to use. Examples:")
+    fmt.Println("        --dns 9.9.9.9                           (use for both IPv4 and IPv6)")
+    fmt.Println("        --dns \"1.1.1.1 2606:4700:4700::1111\"   (separate IPv4 and IPv6)")
+    fmt.Println("        --dns 9.9.9.9:54                        (custom port)")
+    fmt.Println("        --dns \"9.9.9.9:54 [2620:fe::fe]:5353\"  (different ports)")
+    fmt.Println("      Default: 8.8.8.8:53 and 2001:4860:4860::8888:53")
+    fmt.Println("\n  -h, --help")
+    fmt.Println("      Show this help message")
+    fmt.Println("\nExamples:")
+    fmt.Println("  dns_query_utility queries.csv")
+    fmt.Println("  dns_query_utility queries.csv --dns 9.9.9.9")
+    fmt.Println("  dns_query_utility queries.csv --dns \"1.1.1.1 2606:4700:4700::1111\"")
+    fmt.Println("  dns_query_utility queries.csv --dns 192.168.1.1:5353")
+    fmt.Println("\nPopular Public DNS Servers:")
+    fmt.Println("  Google:      8.8.8.8 / 2001:4860:4860::8888")
+    fmt.Println("  Cloudflare:  1.1.1.1 / 2606:4700:4700::1111")
+    fmt.Println("  Quad9:       9.9.9.9 / 2620:fe::fe")
+    fmt.Println("  OpenDNS:     208.67.222.222 / 2620:119:35::35")
 }
 
 func getStatusIcon(status string) string {
