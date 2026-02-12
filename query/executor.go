@@ -69,7 +69,8 @@ func ExecuteQuery(spec QuerySpec, cfg config.Config) result.QueryResult {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	res.Latency = time.Since(startTime)
+	// Convert nanoseconds to milliseconds (float64)
+	res.LatencyMs = float64(time.Since(startTime).Nanoseconds()) / 1e6
 
 	if err != nil {
 		res.Error = err.Error()

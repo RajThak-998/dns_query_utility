@@ -1,0 +1,169 @@
+{
+  "metadata": {
+    "timestamp": "2026-02-12T09:57:03.101454871+05:30",
+    "total_queries": 11,
+    "successful_queries": 7,
+    "no_answer_queries": 2,
+    "failed_queries": 2,
+    "total_duration_ms": 206,
+    "average_latency_ms": 44.79289236363636,
+    "queries_per_second": 53.15612896908178,
+    "dns_server_ipv4": "1.1.1.1:53",
+    "dns_server_ipv6": "1.1.1.1:53",
+    "workers_used": 5,
+    "timeout_seconds": 5,
+    "retry_count": 2
+  },
+  "results": [
+    {
+      "domain": "google.com",
+      "query_type": "A",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 7.516388,
+      "response_code": 0,
+      "resolved_ips": [
+        "142.250.207.174"
+      ],
+      "timestamp": "2026-02-12T09:57:02.894793492+05:30"
+    },
+    {
+      "domain": "google.com",
+      "query_type": "AAAA",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 7.59227,
+      "response_code": 0,
+      "resolved_ips": [
+        "2404:6800:4009:826::200e"
+      ],
+      "timestamp": "2026-02-12T09:57:02.894720365+05:30"
+    },
+    {
+      "domain": "cloudflare.com",
+      "query_type": "TXT",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "no_answer",
+      "latency_ms": 10.39819,
+      "response_code": 0,
+      "error": "no records found",
+      "timestamp": "2026-02-12T09:57:02.894687503+05:30"
+    },
+    {
+      "domain": "cloudflare.com",
+      "query_type": "MX",
+      "transport": "tcp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 13.737148,
+      "response_code": 0,
+      "records": [
+        "MX:5 mxa-canary.global.inbound.cf-emailsecurity.net.",
+        "MX:5 mxb-canary.global.inbound.cf-emailsecurity.net.",
+        "MX:10 mxa.global.inbound.cf-emailsecurity.net.",
+        "MX:10 mxb.global.inbound.cf-emailsecurity.net."
+      ],
+      "timestamp": "2026-02-12T09:57:02.894736896+05:30"
+    },
+    {
+      "domain": "cloudflare.com",
+      "query_type": "AAAA",
+      "transport": "tcp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 12.086664,
+      "response_code": 0,
+      "resolved_ips": [
+        "2606:4700::6810:84e5",
+        "2606:4700::6810:85e5"
+      ],
+      "timestamp": "2026-02-12T09:57:02.902316032+05:30"
+    },
+    {
+      "domain": "github.com",
+      "query_type": "A",
+      "transport": "tcp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 12.417574,
+      "response_code": 0,
+      "resolved_ips": [
+        "20.207.73.82"
+      ],
+      "timestamp": "2026-02-12T09:57:02.90508935+05:30"
+    },
+    {
+      "domain": "example.com",
+      "query_type": "CNAME",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "no_answer",
+      "latency_ms": 9.030986,
+      "response_code": 0,
+      "records": [
+        "SOA:elliott.ns.cloudflare.com."
+      ],
+      "error": "no A/AAAA records found (got: [SOA:elliott.ns.cloudflare.com.])",
+      "timestamp": "2026-02-12T09:57:02.908481427+05:30"
+    },
+    {
+      "domain": "example.com",
+      "query_type": "A",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 7.431539,
+      "response_code": 0,
+      "resolved_ips": [
+        "104.18.26.120",
+        "104.18.27.120"
+      ],
+      "timestamp": "2026-02-12T09:57:02.914413506+05:30"
+    },
+    {
+      "domain": "nonexistent-xyz123.com",
+      "query_type": "A",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "nxdomain",
+      "latency_ms": 12.498416,
+      "response_code": 3,
+      "error": "domain does not exist",
+      "timestamp": "2026-02-12T09:57:02.917511793+05:30"
+    },
+    {
+      "domain": "google.com",
+      "query_type": "A",
+      "transport": "tcp",
+      "network": "ipv6",
+      "status": "error",
+      "latency_ms": 200.931119,
+      "response_code": 0,
+      "error": "dial tcp6: address 1.1.1.1: no suitable address found",
+      "timestamp": "2026-02-12T09:57:02.894729472+05:30"
+    },
+    {
+      "domain": "github.com",
+      "query_type": "NS",
+      "transport": "udp",
+      "network": "ipv4",
+      "status": "success",
+      "latency_ms": 199.081522,
+      "response_code": 0,
+      "records": [
+        "NS:dns1.p08.nsone.net.",
+        "NS:dns2.p08.nsone.net.",
+        "NS:dns3.p08.nsone.net.",
+        "NS:dns4.p08.nsone.net.",
+        "NS:ns-1283.awsdns-32.org.",
+        "NS:ns-1707.awsdns-21.co.uk.",
+        "NS:ns-421.awsdns-52.com.",
+        "NS:ns-520.awsdns-01.net."
+      ],
+      "timestamp": "2026-02-12T09:57:02.902319789+05:30"
+    }
+  ]
+}

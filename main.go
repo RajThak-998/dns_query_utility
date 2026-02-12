@@ -1,417 +1,417 @@
 package main
 
 import (
-    "dns_query_utility/config"
-    "dns_query_utility/output"
-    "dns_query_utility/parser"
-    "dns_query_utility/result"
-    "dns_query_utility/worker"
-    "fmt"
-    "os"
-    "strconv"
-    "strings"
-    "time"
+	"dns_query_utility/config"
+	"dns_query_utility/output"
+	"dns_query_utility/parser"
+	"dns_query_utility/result"
+	"dns_query_utility/worker"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func main() {
-    // Parse arguments
-    csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp := parseArgs(os.Args[1:])
+	// Parse arguments
+	csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp := parseArgs(os.Args[1:])
 
-    if showHelp {
-        printUsage()
-        os.Exit(0)
-    }
+	if showHelp {
+		printUsage()
+		os.Exit(0)
+	}
 
-    if csvFile == "" {
-        fmt.Println("Error: CSV file not specified")
-        fmt.Println("\nUsage: dns_query_utility <csv_file> [options]")
-        fmt.Println("Run 'dns_query_utility --help' for more information")
-        os.Exit(1)
-    }
+	if csvFile == "" {
+		fmt.Println("Error: CSV file not specified")
+		fmt.Println("\nUsage: dns_query_utility <csv_file> [options]")
+		fmt.Println("Run 'dns_query_utility --help' for more information")
+		os.Exit(1)
+	}
 
-    fmt.Println("=== DNS Query Utility ===")
+	fmt.Println("=== DNS Query Utility ===")
 
-    // Parse DNS servers
-    var dnsServers []string
-    if dnsArg != "" {
-        dnsServers = strings.Fields(dnsArg)
-        fmt.Printf("DNS Server(s): %v\n", dnsArg)
-    }
+	// Parse DNS servers
+	var dnsServers []string
+	if dnsArg != "" {
+		dnsServers = strings.Fields(dnsArg)
+		fmt.Printf("DNS Server(s): %v\n", dnsArg)
+	}
 
-    ipv4Server, ipv4Port, ipv6Server, ipv6Port, err := config.ParseDNSServers(dnsServers...)
-    if err != nil {
-        fmt.Printf("\nError parsing DNS servers: %v\n", err)
-        os.Exit(1)
-    }
+	ipv4Server, ipv4Port, ipv6Server, ipv6Port, err := config.ParseDNSServers(dnsServers...)
+	if err != nil {
+		fmt.Printf("\nError parsing DNS servers: %v\n", err)
+		os.Exit(1)
+	}
 
-    // Apply DNS defaults
-    if ipv4Server == "" && ipv6Server == "" {
-        ipv4Server = "8.8.8.8"
-        ipv4Port = 53
-        ipv6Server = "2001:4860:4860::8888"
-        ipv6Port = 53
-        fmt.Println("Using default DNS servers (Google Public DNS)")
-    } else {
-        fmt.Println("Using custom DNS servers")
-    }
+	// Apply DNS defaults
+	if ipv4Server == "" && ipv6Server == "" {
+		ipv4Server = "8.8.8.8"
+		ipv4Port = 53
+		ipv6Server = "2001:4860:4860::8888"
+		ipv6Port = 53
+		fmt.Println("Using default DNS servers (Google Public DNS)")
+	} else {
+		fmt.Println("Using custom DNS servers")
+	}
 
-    // Parse timeout
-    timeout := 5 * time.Second
-    if timeoutArg != "" {
-        t, err := time.ParseDuration(timeoutArg)
-        if err != nil {
-            fmt.Printf("Error: invalid timeout '%s' (use format like 5s, 500ms, 1m)\n", timeoutArg)
-            os.Exit(1)
-        }
-        if t <= 0 {
-            fmt.Println("Error: timeout must be positive")
-            os.Exit(1)
-        }
-        timeout = t
-    }
+	// Parse timeout
+	timeout := 5 * time.Second
+	if timeoutArg != "" {
+		t, err := time.ParseDuration(timeoutArg)
+		if err != nil {
+			fmt.Printf("Error: invalid timeout '%s' (use format like 5s, 500ms, 1m)\n", timeoutArg)
+			os.Exit(1)
+		}
+		if t <= 0 {
+			fmt.Println("Error: timeout must be positive")
+			os.Exit(1)
+		}
+		timeout = t
+	}
 
-    // Parse retry count
-    retryCount := 2
-    if retryArg != "" {
-        rc, err := strconv.Atoi(retryArg)
-        if err != nil || rc < 0 || rc > 10 {
-            fmt.Printf("Error: invalid retry count '%s' (must be 0-10)\n", retryArg)
-            os.Exit(1)
-        }
-        retryCount = rc
-    }
+	// Parse retry count
+	retryCount := 2
+	if retryArg != "" {
+		rc, err := strconv.Atoi(retryArg)
+		if err != nil || rc < 0 || rc > 10 {
+			fmt.Printf("Error: invalid retry count '%s' (must be 0-10)\n", retryArg)
+			os.Exit(1)
+		}
+		retryCount = rc
+	}
 
-    // Parse CSV
-    specs, err := parser.ParseCSV(csvFile)
-    if err != nil {
-        fmt.Printf("\nError parsing CSV: %v\n", err)
-        os.Exit(1)
-    }
+	// Parse CSV
+	specs, err := parser.ParseCSV(csvFile)
+	if err != nil {
+		fmt.Printf("\nError parsing CSV: %v\n", err)
+		os.Exit(1)
+	}
 
-    // Auto-calculate workers
-    workerCount := config.CalculateOptimalWorkers(len(specs))
+	// Auto-calculate workers
+	workerCount := config.CalculateOptimalWorkers(len(specs))
 
-    // Create configuration
-    cfg := config.Config{
-        DNSServerIPv4: ipv4Server,
-        DNSServerIPv6: ipv6Server,
-        DNSPort:       ipv4Port,
-        Timeout:       timeout,
-        RetryCount:    retryCount,
-        WorkerCount:   workerCount,
-    }
+	// Create configuration
+	cfg := config.Config{
+		DNSServerIPv4: ipv4Server,
+		DNSServerIPv6: ipv6Server,
+		DNSPort:       ipv4Port,
+		Timeout:       timeout,
+		RetryCount:    retryCount,
+		WorkerCount:   workerCount,
+	}
 
-    if err := cfg.Validate(); err != nil {
-        fmt.Printf("Configuration error: %v\n", err)
-        os.Exit(1)
-    }
+	if err := cfg.Validate(); err != nil {
+		fmt.Printf("Configuration error: %v\n", err)
+		os.Exit(1)
+	}
 
-    fmt.Printf("\nDNS Configuration:\n")
-    fmt.Printf("  IPv4 Server:   %s:%d\n", cfg.DNSServerIPv4, ipv4Port)
-    fmt.Printf("  IPv6 Server:   %s:%d\n", cfg.DNSServerIPv6, ipv6Port)
-    fmt.Printf("  Timeout:       %v\n", cfg.Timeout)
-    fmt.Printf("  Retry Count:   %d\n", cfg.RetryCount)
-    fmt.Printf("  Query Count:   %d\n", len(specs))
-    fmt.Printf("  Workers:       %d (auto-scaled)\n\n", cfg.WorkerCount)
+	fmt.Printf("\nDNS Configuration:\n")
+	fmt.Printf("  IPv4 Server:   %s:%d\n", cfg.DNSServerIPv4, ipv4Port)
+	fmt.Printf("  IPv6 Server:   %s:%d\n", cfg.DNSServerIPv6, ipv6Port)
+	fmt.Printf("  Timeout:       %v\n", cfg.Timeout)
+	fmt.Printf("  Retry Count:   %d\n", cfg.RetryCount)
+	fmt.Printf("  Query Count:   %d\n", len(specs))
+	fmt.Printf("  Workers:       %d (auto-scaled)\n\n", cfg.WorkerCount)
 
-    fmt.Println("Executing DNS Queries (Concurrent):")
-    fmt.Println("====================================")
+	fmt.Println("Executing DNS Queries (Concurrent):")
+	fmt.Println("====================================")
 
-    // Execute queries
-    startTime := time.Now()
-    results := worker.ExecuteWithProgress(specs, cfg)
-    totalDuration := time.Since(startTime)
+	// Execute queries
+	startTime := time.Now()
+	results := worker.ExecuteWithProgress(specs, cfg)
+	totalDuration := time.Since(startTime)
 
-    fmt.Printf("\nAll queries completed in %v\n", totalDuration)
+	fmt.Printf("\nAll queries completed in %v\n", totalDuration)
 
-    // Determine output format
-    format := output.FormatJSON // Default: JSON
-    if formatArg != "" {
-        switch strings.ToLower(formatArg) {
-        case "csv":
-            format = output.FormatCSV
-        case "json":
-            format = output.FormatJSON
-        case "all":
-            format = output.FormatAll
-        default:
-            fmt.Printf("Error: unknown format '%s' (use: csv, json, all)\n", formatArg)
-            os.Exit(1)
-        }
-    }
+	// Determine output format
+	format := output.FormatJSON // Default: JSON
+	if formatArg != "" {
+		switch strings.ToLower(formatArg) {
+		case "csv":
+			format = output.FormatCSV
+		case "json":
+			format = output.FormatJSON
+		case "all":
+			format = output.FormatAll
+		default:
+			fmt.Printf("Error: unknown format '%s' (use: csv, json, all)\n", formatArg)
+			os.Exit(1)
+		}
+	}
 
-    // Determine output file name
-    if outputFile == "" {
-        outputFile = "result" // Default base name
-    }
+	// Determine output file name
+	if outputFile == "" {
+		outputFile = "result" // Default base name
+	}
 
-    // Build metadata
-    metadata := buildMetadata(results, totalDuration, cfg, ipv4Server, ipv4Port, ipv6Server, ipv6Port)
+	// Build metadata
+	metadata := buildMetadata(results, totalDuration, cfg, ipv4Server, ipv4Port, ipv6Server, ipv6Port)
 
-    // Generate output file(s)
-    switch format {
-    case output.FormatJSON:
-        jsonPath := output.ChangeExtension(outputFile, ".json")
-        if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
-            fmt.Printf("\nError writing JSON file: %v\n", err)
-            os.Exit(1)
-        }
-        fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+	// Generate output file(s)
+	switch format {
+	case output.FormatJSON:
+		jsonPath := output.ChangeExtension(outputFile, ".json")
+		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
+			fmt.Printf("\nError writing JSON file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
 
-    case output.FormatCSV:
-        csvPath := output.ChangeExtension(outputFile, ".csv")
-        if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
-            fmt.Printf("\nError writing CSV file: %v\n", err)
-            os.Exit(1)
-        }
-        fmt.Printf("\n✓ CSV output written to: %s\n", csvPath)
+	case output.FormatCSV:
+		csvPath := output.ChangeExtension(outputFile, ".csv")
+		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
+			fmt.Printf("\nError writing CSV file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\n✓ CSV output written to: %s\n", csvPath)
 
-    case output.FormatAll:
-        jsonPath := output.ChangeExtension(outputFile, ".json")
-        csvPath := output.ChangeExtension(outputFile, ".csv")
+	case output.FormatAll:
+		jsonPath := output.ChangeExtension(outputFile, ".json")
+		csvPath := output.ChangeExtension(outputFile, ".csv")
 
-        if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
-            fmt.Printf("\nError writing JSON file: %v\n", err)
-            os.Exit(1)
-        }
-        fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
+			fmt.Printf("\nError writing JSON file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
 
-        if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
-            fmt.Printf("\nError writing CSV file: %v\n", err)
-            os.Exit(1)
-        }
-        fmt.Printf("✓ CSV output written to: %s\n", csvPath)
-    }
+		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
+			fmt.Printf("\nError writing CSV file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ CSV output written to: %s\n", csvPath)
+	}
 
-    // Console display
-    fmt.Println("\nDetailed Results:")
-    fmt.Println("=================")
-    displayResults(results)
-    printSummary(results, totalDuration, cfg.WorkerCount)
+	// Console display
+	fmt.Println("\nDetailed Results:")
+	fmt.Println("=================")
+	displayResults(results)
+	printSummary(results, totalDuration, cfg.WorkerCount)
 }
 
 func buildMetadata(results []result.QueryResult, duration time.Duration, cfg config.Config, ipv4 string, ipv4Port int, ipv6 string, ipv6Port int) output.Metadata {
-    successCount := 0
-    noAnswerCount := 0
-    errorCount := 0
-    var totalLatency time.Duration
+	successCount := 0
+	noAnswerCount := 0
+	errorCount := 0
+	var totalLatencyMs float64
 
-    for _, res := range results {
-        totalLatency += res.Latency
-        switch res.Status {
-        case result.StatusSuccess:
-            successCount++
-        case result.StatusNoAnswer:
-            noAnswerCount++
-        default:
-            errorCount++
-        }
-    }
+	for _, res := range results {
+		totalLatencyMs += res.LatencyMs
+		switch res.Status {
+		case result.StatusSuccess:
+			successCount++
+		case result.StatusNoAnswer:
+			noAnswerCount++
+		default:
+			errorCount++
+		}
+	}
 
-    avgLatency := float64(0)
-    if len(results) > 0 {
-        avgLatency = float64(totalLatency.Milliseconds()) / float64(len(results))
-    }
+	avgLatency := float64(0)
+	if len(results) > 0 {
+		avgLatency = totalLatencyMs / float64(len(results))
+	}
 
-    return output.Metadata{
-        Timestamp:         time.Now(),
-        TotalQueries:      len(results),
-        SuccessfulQueries: successCount,
-        NoAnswerQueries:   noAnswerCount,
-        FailedQueries:     errorCount,
-        TotalDurationMs:   duration.Milliseconds(),
-        AverageLatencyMs:  avgLatency,
-        QueriesPerSecond:  float64(len(results)) / duration.Seconds(),
-        DNSServerIPv4:     fmt.Sprintf("%s:%d", ipv4, ipv4Port),
-        DNSServerIPv6:     fmt.Sprintf("%s:%d", ipv6, ipv6Port),
-        WorkersUsed:       cfg.WorkerCount,
-        TimeoutSeconds:    cfg.Timeout.Seconds(),
-        RetryCount:        cfg.RetryCount,
-    }
+	return output.Metadata{
+		Timestamp:         time.Now(),
+		TotalQueries:      len(results),
+		SuccessfulQueries: successCount,
+		NoAnswerQueries:   noAnswerCount,
+		FailedQueries:     errorCount,
+		TotalDurationMs:   duration.Milliseconds(),
+		AverageLatencyMs:  avgLatency,
+		QueriesPerSecond:  float64(len(results)) / duration.Seconds(),
+		DNSServerIPv4:     fmt.Sprintf("%s:%d", ipv4, ipv4Port),
+		DNSServerIPv6:     fmt.Sprintf("%s:%d", ipv6, ipv6Port),
+		WorkersUsed:       cfg.WorkerCount,
+		TimeoutSeconds:    cfg.Timeout.Seconds(),
+		RetryCount:        cfg.RetryCount,
+	}
 }
 
 func displayResults(results []result.QueryResult) {
-    for i, res := range results {
-        fmt.Printf("%d. %s (type=%s transport=%s network=%s)\n",
-            i+1, res.Domain, res.QueryType, res.Transport, res.IPVersion)
+	for i, res := range results {
+		fmt.Printf("%d. %s (type=%s transport=%s network=%s)\n",
+			i+1, res.Domain, res.QueryType, res.Transport, res.IPVersion)
 
-        statusIcon := getStatusIcon(string(res.Status))
-        fmt.Printf("   Status:        %s %s\n", statusIcon, res.Status)
-        fmt.Printf("   Latency:       %v\n", res.Latency)
-        fmt.Printf("   Response Code: %d\n", res.ResponseCode)
+		statusIcon := getStatusIcon(string(res.Status))
+		fmt.Printf("   Status:        %s %s\n", statusIcon, res.Status)
+		fmt.Printf("   Latency:       %.2fms\n", res.LatencyMs)
+		fmt.Printf("   Response Code: %d\n", res.ResponseCode)
 
-        switch res.Status {
-        case result.StatusSuccess:
-            if len(res.Records) > 0 {
-                fmt.Printf("   Records:       %v\n", res.Records)
-            }
-            if len(res.ResolvedIPs) > 0 {
-                fmt.Printf("   Resolved IPs:  %v\n", res.ResolvedIPs)
-            }
+		switch res.Status {
+		case result.StatusSuccess:
+			if len(res.Records) > 0 {
+				fmt.Printf("   Records:       %v\n", res.Records)
+			}
+			if len(res.ResolvedIPs) > 0 {
+				fmt.Printf("   Resolved IPs:  %v\n", res.ResolvedIPs)
+			}
 
-        case result.StatusNoAnswer:
-            if len(res.Records) > 0 {
-                fmt.Printf("   Records:       %v\n", res.Records)
-            }
-            fmt.Printf("   Note:          %s\n", res.Error)
+		case result.StatusNoAnswer:
+			if len(res.Records) > 0 {
+				fmt.Printf("   Records:       %v\n", res.Records)
+			}
+			fmt.Printf("   Note:          %s\n", res.Error)
 
-        default:
-            if res.Error != "" {
-                fmt.Printf("   Error:         %s\n", res.Error)
-            }
-        }
+		default:
+			if res.Error != "" {
+				fmt.Printf("   Error:         %s\n", res.Error)
+			}
+		}
 
-        fmt.Println()
-    }
+		fmt.Println()
+	}
 }
 
 func printSummary(results []result.QueryResult, totalDuration time.Duration, workerCount int) {
-    fmt.Println("Summary:")
-    fmt.Println("========")
+	fmt.Println("Summary:")
+	fmt.Println("========")
 
-    successCount := 0
-    noAnswerCount := 0
-    errorCount := 0
-    var totalLatency time.Duration
+	successCount := 0
+	noAnswerCount := 0
+	errorCount := 0
+	var totalLatencyMs float64
 
-    for _, res := range results {
-        totalLatency += res.Latency
-        switch res.Status {
-        case result.StatusSuccess:
-            successCount++
-        case result.StatusNoAnswer:
-            noAnswerCount++
-        default:
-            errorCount++
-        }
-    }
+	for _, res := range results {
+		totalLatencyMs += res.LatencyMs
+		switch res.Status {
+		case result.StatusSuccess:
+			successCount++
+		case result.StatusNoAnswer:
+			noAnswerCount++
+		default:
+			errorCount++
+		}
+	}
 
-    avgLatency := time.Duration(0)
-    if len(results) > 0 {
-        avgLatency = totalLatency / time.Duration(len(results))
-    }
+	avgLatency := float64(0)
+	if len(results) > 0 {
+		avgLatency = totalLatencyMs / float64(len(results))
+	}
 
-    fmt.Printf("Total Queries:    %d\n", len(results))
-    fmt.Printf("Workers Used:     %d\n", workerCount)
-    fmt.Printf("Successful:       %d\n", successCount)
-    fmt.Printf("No Answer:        %d\n", noAnswerCount)
-    fmt.Printf("Errors:           %d\n", errorCount)
-    fmt.Printf("Total Time:       %v\n", totalDuration)
-    fmt.Printf("Average Latency:  %v\n", avgLatency)
-    if totalDuration.Seconds() > 0 {
-        fmt.Printf("Queries/Second:   %.2f\n", float64(len(results))/totalDuration.Seconds())
-    }
+	fmt.Printf("Total Queries:    %d\n", len(results))
+	fmt.Printf("Workers Used:     %d\n", workerCount)
+	fmt.Printf("Successful:       %d\n", successCount)
+	fmt.Printf("No Answer:        %d\n", noAnswerCount)
+	fmt.Printf("Errors:           %d\n", errorCount)
+	fmt.Printf("Total Time:       %v\n", totalDuration)
+	fmt.Printf("Average Latency:  %.2fms\n", avgLatency)
+	if totalDuration.Seconds() > 0 {
+		fmt.Printf("Queries/Second:   %.2f\n", float64(len(results))/totalDuration.Seconds())
+	}
 }
 
 func parseArgs(args []string) (string, string, string, string, string, string, bool) {
-    var csvFile string
-    var dnsArg string
-    var outputFile string
-    var formatArg string
-    var timeoutArg string
-    var retryArg string
-    showHelp := false
+	var csvFile string
+	var dnsArg string
+	var outputFile string
+	var formatArg string
+	var timeoutArg string
+	var retryArg string
+	showHelp := false
 
-    i := 0
-    for i < len(args) {
-        arg := args[i]
+	i := 0
+	for i < len(args) {
+		arg := args[i]
 
-        switch {
-        case arg == "--help" || arg == "-h":
-            showHelp = true
-            i++
+		switch {
+		case arg == "--help" || arg == "-h":
+			showHelp = true
+			i++
 
-        case arg == "--dns":
-            if i+1 < len(args) {
-                i++
-                dnsArg = args[i]
-            } else {
-                fmt.Println("Error: --dns requires a value")
-                os.Exit(1)
-            }
-            i++
+		case arg == "--dns":
+			if i+1 < len(args) {
+				i++
+				dnsArg = args[i]
+			} else {
+				fmt.Println("Error: --dns requires a value")
+				os.Exit(1)
+			}
+			i++
 
-        case strings.HasPrefix(arg, "--dns="):
-            dnsArg = strings.TrimPrefix(arg, "--dns=")
-            i++
+		case strings.HasPrefix(arg, "--dns="):
+			dnsArg = strings.TrimPrefix(arg, "--dns=")
+			i++
 
-        case arg == "--output" || arg == "-o":
-            if i+1 < len(args) {
-                i++
-                outputFile = args[i]
-            } else {
-                fmt.Println("Error: --output requires a value")
-                os.Exit(1)
-            }
-            i++
+		case arg == "--output" || arg == "-o":
+			if i+1 < len(args) {
+				i++
+				outputFile = args[i]
+			} else {
+				fmt.Println("Error: --output requires a value")
+				os.Exit(1)
+			}
+			i++
 
-        case strings.HasPrefix(arg, "--output="):
-            outputFile = strings.TrimPrefix(arg, "--output=")
-            i++
+		case strings.HasPrefix(arg, "--output="):
+			outputFile = strings.TrimPrefix(arg, "--output=")
+			i++
 
-        case arg == "--format" || arg == "-f":
-            if i+1 < len(args) {
-                i++
-                formatArg = args[i]
-            } else {
-                fmt.Println("Error: --format requires a value")
-                os.Exit(1)
-            }
-            i++
+		case arg == "--format" || arg == "-f":
+			if i+1 < len(args) {
+				i++
+				formatArg = args[i]
+			} else {
+				fmt.Println("Error: --format requires a value")
+				os.Exit(1)
+			}
+			i++
 
-        case strings.HasPrefix(arg, "--format="):
-            formatArg = strings.TrimPrefix(arg, "--format=")
-            i++
+		case strings.HasPrefix(arg, "--format="):
+			formatArg = strings.TrimPrefix(arg, "--format=")
+			i++
 
-        case arg == "--timeout" || arg == "-t":
-            if i+1 < len(args) {
-                i++
-                timeoutArg = args[i]
-            } else {
-                fmt.Println("Error: --timeout requires a value")
-                os.Exit(1)
-            }
-            i++
+		case arg == "--timeout" || arg == "-t":
+			if i+1 < len(args) {
+				i++
+				timeoutArg = args[i]
+			} else {
+				fmt.Println("Error: --timeout requires a value")
+				os.Exit(1)
+			}
+			i++
 
-        case strings.HasPrefix(arg, "--timeout="):
-            timeoutArg = strings.TrimPrefix(arg, "--timeout=")
-            i++
+		case strings.HasPrefix(arg, "--timeout="):
+			timeoutArg = strings.TrimPrefix(arg, "--timeout=")
+			i++
 
-        case arg == "--retry" || arg == "-r":
-            if i+1 < len(args) {
-                i++
-                retryArg = args[i]
-            } else {
-                fmt.Println("Error: --retry requires a value")
-                os.Exit(1)
-            }
-            i++
+		case arg == "--retry" || arg == "-r":
+			if i+1 < len(args) {
+				i++
+				retryArg = args[i]
+			} else {
+				fmt.Println("Error: --retry requires a value")
+				os.Exit(1)
+			}
+			i++
 
-        case strings.HasPrefix(arg, "--retry="):
-            retryArg = strings.TrimPrefix(arg, "--retry=")
-            i++
+		case strings.HasPrefix(arg, "--retry="):
+			retryArg = strings.TrimPrefix(arg, "--retry=")
+			i++
 
-        case strings.HasPrefix(arg, "-"):
-            fmt.Printf("Error: unknown flag '%s'\n", arg)
-            fmt.Println("Run 'dns_query_utility --help' for usage")
-            os.Exit(1)
+		case strings.HasPrefix(arg, "-"):
+			fmt.Printf("Error: unknown flag '%s'\n", arg)
+			fmt.Println("Run 'dns_query_utility --help' for usage")
+			os.Exit(1)
 
-        default:
-            if csvFile == "" {
-                csvFile = arg
-            } else {
-                fmt.Printf("Error: unexpected argument '%s'\n", arg)
-                os.Exit(1)
-            }
-            i++
-        }
-    }
+		default:
+			if csvFile == "" {
+				csvFile = arg
+			} else {
+				fmt.Printf("Error: unexpected argument '%s'\n", arg)
+				os.Exit(1)
+			}
+			i++
+		}
+	}
 
-    return csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp
+	return csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp
 }
 
 func printUsage() {
-    fmt.Println(`
+	fmt.Println(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                    DNS Query Utility                         ║
 ║              Concurrent DNS Querying Tool                    ║
@@ -573,22 +573,22 @@ POPULAR DNS SERVERS:
 }
 
 func getStatusIcon(status string) string {
-    switch status {
-    case "success":
-        return "✓"
-    case "no_answer":
-        return "⚠"
-    case "nxdomain":
-        return "✗"
-    case "servfail":
-        return "✗"
-    case "refused":
-        return "✗"
-    case "timeout":
-        return "⏱"
-    case "error":
-        return "✗"
-    default:
-        return "?"
-    }
+	switch status {
+	case "success":
+		return "✓"
+	case "no_answer":
+		return "⚠"
+	case "nxdomain":
+		return "✗"
+	case "servfail":
+		return "✗"
+	case "refused":
+		return "✗"
+	case "timeout":
+		return "⏱"
+	case "error":
+		return "✗"
+	default:
+		return "?"
+	}
 }
