@@ -4,6 +4,7 @@ import (
 	"dns_query_utility/config"
 	"dns_query_utility/output"
 	"dns_query_utility/parser"
+	"dns_query_utility/query"
 	"dns_query_utility/result"
 	"dns_query_utility/worker"
 	"fmt"
@@ -14,8 +15,8 @@ import (
 )
 
 func main() {
-	// Parse arguments
-	csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp := parseArgs(os.Args[1:])
+	// Parse arguments with new flags
+	csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, workersArg, transportOverride, queryAll, showHelp := parseArgs(os.Args[1:])
 
 	if showHelp {
 		printUsage()
@@ -88,20 +89,54 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Auto-calculate workers
-	workerCount := config.CalculateOptimalWorkers(len(specs))
+	fmt.Printf("Successfully parsed %d queries from CSV\n", len(specs))
+
+	// Check for ANY + --query-all conflict
+	checkForANYWithQueryAll(specs, queryAll)
+
+	// Apply overrides BEFORE calculating workers
+	originalCount := len(specs)
+
+	// 1. Apply transport override
+	if transportOverride != "" {
+		specs = applyTransportOverride(specs, transportOverride)
+		fmt.Printf("✓ Transport override: All queries will use %s\n", strings.ToUpper(transportOverride))
+	}
+
+	// 2. Expand to all query types if requested
+	if queryAll {
+		specs = expandToAllTypes(specs)
+		fmt.Printf("✓ Query-all mode: Expanded %d domains to %d queries (all record types)\n", originalCount, len(specs))
+		fmt.Printf("✓ Output will be consolidated (one record per domain)\n")
+	}
+
+	// Auto-calculate or parse workers
+	var workerCount int
+	if workersArg != "" {
+		wc, err := strconv.Atoi(workersArg)
+		if err != nil || wc < config.MinWorkers || wc > config.AbsoluteMaxWorkers {
+			fmt.Printf("Error: invalid worker count '%s' (must be %d-%d)\n", workersArg, config.MinWorkers, config.AbsoluteMaxWorkers)
+			os.Exit(1)
+		}
+		workerCount = wc
+		fmt.Printf("✓ Manual worker override: Using %d workers\n", workerCount)
+	} else {
+		workerCount = config.CalculateOptimalWorkers(len(specs))
+	}
 
 	// Create configuration
 	cfg := config.Config{
-		DNSServerIPv4: ipv4Server,
-		DNSServerIPv6: ipv6Server,
-		DNSPort:       ipv4Port,
-		Timeout:       timeout,
-		RetryCount:    retryCount,
-		WorkerCount:   workerCount,
+		DNSServerIPv4:     ipv4Server,
+		DNSServerIPv6:     ipv6Server,
+		DNSPort:           ipv4Port,
+		Timeout:           timeout,
+		RetryCount:        retryCount,
+		WorkerCount:       workerCount,
+		TransportOverride: transportOverride,
+		QueryAllTypes:     queryAll,
 	}
 
-	if err := cfg.Validate(); err != nil {
+	if err := config.Validate(cfg); err != nil {
 		fmt.Printf("Configuration error: %v\n", err)
 		os.Exit(1)
 	}
@@ -112,7 +147,13 @@ func main() {
 	fmt.Printf("  Timeout:       %v\n", cfg.Timeout)
 	fmt.Printf("  Retry Count:   %d\n", cfg.RetryCount)
 	fmt.Printf("  Query Count:   %d\n", len(specs))
-	fmt.Printf("  Workers:       %d (auto-scaled)\n\n", cfg.WorkerCount)
+	fmt.Printf("  Workers:       %d", cfg.WorkerCount)
+	if workersArg != "" {
+		fmt.Printf(" (manual override)")
+	} else {
+		fmt.Printf(" (auto-scaled)")
+	}
+	fmt.Println("")
 
 	fmt.Println("Executing DNS Queries (Concurrent):")
 	fmt.Println("====================================")
@@ -125,7 +166,7 @@ func main() {
 	fmt.Printf("\nAll queries completed in %v\n", totalDuration)
 
 	// Determine output format
-	format := output.FormatJSON // Default: JSON
+	format := output.FormatJSON
 	if formatArg != "" {
 		switch strings.ToLower(formatArg) {
 		case "csv":
@@ -142,25 +183,31 @@ func main() {
 
 	// Determine output file name
 	if outputFile == "" {
-		outputFile = "result" // Default base name
+		outputFile = "result"
 	}
 
 	// Build metadata
 	metadata := buildMetadata(results, totalDuration, cfg, ipv4Server, ipv4Port, ipv6Server, ipv6Port)
 
-	// Generate output file(s)
+	// Generate output file(s) - consolidate if using --query-all
+	consolidate := queryAll
+
 	switch format {
 	case output.FormatJSON:
 		jsonPath := output.ChangeExtension(outputFile, ".json")
-		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
+		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata, consolidate); err != nil {
 			fmt.Printf("\nError writing JSON file: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+		if consolidate {
+			fmt.Printf("\n✓ Consolidated JSON output written to: %s\n", jsonPath)
+		} else {
+			fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+		}
 
 	case output.FormatCSV:
 		csvPath := output.ChangeExtension(outputFile, ".csv")
-		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
+		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata, false); err != nil {
 			fmt.Printf("\nError writing CSV file: %v\n", err)
 			os.Exit(1)
 		}
@@ -170,13 +217,17 @@ func main() {
 		jsonPath := output.ChangeExtension(outputFile, ".json")
 		csvPath := output.ChangeExtension(outputFile, ".csv")
 
-		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata); err != nil {
+		if err := output.WriteOutput(jsonPath, output.FormatJSON, results, metadata, consolidate); err != nil {
 			fmt.Printf("\nError writing JSON file: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+		if consolidate {
+			fmt.Printf("\n✓ Consolidated JSON output written to: %s\n", jsonPath)
+		} else {
+			fmt.Printf("\n✓ JSON output written to: %s\n", jsonPath)
+		}
 
-		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata); err != nil {
+		if err := output.WriteOutput(csvPath, output.FormatCSV, results, metadata, false); err != nil {
 			fmt.Printf("\nError writing CSV file: %v\n", err)
 			os.Exit(1)
 		}
@@ -186,8 +237,75 @@ func main() {
 	// Console display
 	fmt.Println("\nDetailed Results:")
 	fmt.Println("=================")
-	displayResults(results)
+
+	if consolidate {
+		displayConsolidatedResults(result.ConsolidateResults(results))
+	} else {
+		displayResults(results)
+	}
+
 	printSummary(results, totalDuration, cfg.WorkerCount)
+}
+
+// applyTransportOverride overrides transport protocol for all queries
+func applyTransportOverride(specs []query.QuerySpec, transport string) []query.QuerySpec {
+	var overrideTransport query.Transport
+	if transport == "tcp" {
+		overrideTransport = query.TCP
+	} else {
+		overrideTransport = query.UDP
+	}
+
+	for i := range specs {
+		specs[i].Transport = overrideTransport
+	}
+
+	return specs
+}
+
+// expandToAllTypes creates queries for all record types for each unique domain
+func expandToAllTypes(specs []query.QuerySpec) []query.QuerySpec {
+	// Group by domain to avoid duplicates
+	domainMap := make(map[string]query.QuerySpec)
+
+	for _, spec := range specs {
+		// Use first occurrence of each domain
+		if _, exists := domainMap[spec.Domain]; !exists {
+			domainMap[spec.Domain] = spec
+		}
+	}
+
+	// Expand each domain to all query types
+	var expanded []query.QuerySpec
+	for _, spec := range domainMap {
+		// ExpandToAllTypes expects: domain, transport, ipVersion (3 args)
+		allTypeSpecs := query.ExpandToAllTypes(spec.Domain, spec.Transport, spec.IPVersion)
+		expanded = append(expanded, allTypeSpecs...)
+	}
+
+	return expanded
+}
+
+// checkForANYWithQueryAll validates that ANY queries aren't combined with --query-all
+func checkForANYWithQueryAll(specs []query.QuerySpec, queryAll bool) {
+	if !queryAll {
+		return
+	}
+
+	hasANY := false
+	for _, spec := range specs {
+		if spec.QueryType == query.QueryTypeANY {
+			hasANY = true
+			break
+		}
+	}
+
+	if hasANY {
+		fmt.Println("\n⚠️  WARNING: Your CSV contains 'ANY' query type.")
+		fmt.Println("   Using --query-all with ANY is redundant.")
+		fmt.Println("   Recommendation: Either use --query-all OR use ANY queries, not both.")
+		fmt.Println("   The ANY queries will be expanded to individual types.")
+	}
 }
 
 func buildMetadata(results []result.QueryResult, duration time.Duration, cfg config.Config, ipv4 string, ipv4Port int, ipv6 string, ipv6Port int) output.Metadata {
@@ -240,6 +358,11 @@ func displayResults(results []result.QueryResult) {
 		fmt.Printf("   Latency:       %.2fms\n", res.LatencyMs)
 		fmt.Printf("   Response Code: %d\n", res.ResponseCode)
 
+		// NEW: Display authoritative nameservers
+		if len(res.AuthoritativeNS) > 0 {
+			fmt.Printf("   Authority NS:  %v\n", res.AuthoritativeNS)
+		}
+
 		switch res.Status {
 		case result.StatusSuccess:
 			if len(res.Records) > 0 {
@@ -261,6 +384,42 @@ func displayResults(results []result.QueryResult) {
 			}
 		}
 
+		fmt.Println()
+	}
+}
+
+// Update the displayConsolidatedResults function
+
+func displayConsolidatedResults(consolidated []result.ConsolidatedResult) {
+	for i, cr := range consolidated {
+		fmt.Printf("%d. %s\n", i+1, cr.Domain)
+		fmt.Printf("   Summary: %d queries, %d successful, %d no-answer, %d failed (avg: %.2fms)\n",
+			cr.Summary.TotalQueries, cr.Summary.Successful, cr.Summary.NoAnswer,
+			cr.Summary.Failed, cr.Summary.AverageLatencyMs)
+
+		fmt.Println("   Query Types:")
+		for qType, typeRes := range cr.QueryTypes {
+			statusIcon := getStatusIcon(string(typeRes.Status))
+			fmt.Printf("     [%s] %-6s: %s %s (%.2fms)",
+				statusIcon, qType, typeRes.Transport, typeRes.IPVersion, typeRes.LatencyMs)
+
+			if typeRes.Status == result.StatusSuccess {
+				if len(typeRes.ResolvedIPs) > 0 {
+					fmt.Printf(" → %v", typeRes.ResolvedIPs)
+				} else if len(typeRes.Records) > 0 {
+					fmt.Printf(" → %v", typeRes.Records)
+				}
+			} else if typeRes.Error != "" {
+				fmt.Printf(" [%s]", typeRes.Error)
+			}
+
+			// NEW: Display authoritative NS if present
+			if len(typeRes.AuthoritativeNS) > 0 {
+				fmt.Printf(" | Auth: %v", typeRes.AuthoritativeNS)
+			}
+
+			fmt.Println()
+		}
 		fmt.Println()
 	}
 }
@@ -303,13 +462,16 @@ func printSummary(results []result.QueryResult, totalDuration time.Duration, wor
 	}
 }
 
-func parseArgs(args []string) (string, string, string, string, string, string, bool) {
+func parseArgs(args []string) (string, string, string, string, string, string, string, string, bool, bool) {
 	var csvFile string
 	var dnsArg string
 	var outputFile string
 	var formatArg string
 	var timeoutArg string
 	var retryArg string
+	var workersArg string
+	var transportOverride string
+	queryAll := false
 	showHelp := false
 
 	i := 0
@@ -391,6 +553,46 @@ func parseArgs(args []string) (string, string, string, string, string, string, b
 			retryArg = strings.TrimPrefix(arg, "--retry=")
 			i++
 
+		case arg == "--workers" || arg == "-w":
+			if i+1 < len(args) {
+				i++
+				workersArg = args[i]
+			} else {
+				fmt.Println("Error: --workers requires a value")
+				os.Exit(1)
+			}
+			i++
+
+		case strings.HasPrefix(arg, "--workers="):
+			workersArg = strings.TrimPrefix(arg, "--workers=")
+			i++
+
+		case arg == "--transport":
+			if i+1 < len(args) {
+				i++
+				transportOverride = strings.ToLower(args[i])
+				if transportOverride != "tcp" && transportOverride != "udp" {
+					fmt.Printf("Error: --transport must be 'tcp' or 'udp', got '%s'\n", transportOverride)
+					os.Exit(1)
+				}
+			} else {
+				fmt.Println("Error: --transport requires a value (tcp or udp)")
+				os.Exit(1)
+			}
+			i++
+
+		case strings.HasPrefix(arg, "--transport="):
+			transportOverride = strings.ToLower(strings.TrimPrefix(arg, "--transport="))
+			if transportOverride != "tcp" && transportOverride != "udp" {
+				fmt.Printf("Error: --transport must be 'tcp' or 'udp', got '%s'\n", transportOverride)
+				os.Exit(1)
+			}
+			i++
+
+		case arg == "--query-all":
+			queryAll = true
+			i++
+
 		case strings.HasPrefix(arg, "-"):
 			fmt.Printf("Error: unknown flag '%s'\n", arg)
 			fmt.Println("Run 'dns_query_utility --help' for usage")
@@ -407,7 +609,7 @@ func parseArgs(args []string) (string, string, string, string, string, string, b
 		}
 	}
 
-	return csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, showHelp
+	return csvFile, dnsArg, outputFile, formatArg, timeoutArg, retryArg, workersArg, transportOverride, queryAll, showHelp
 }
 
 func printUsage() {
@@ -431,139 +633,100 @@ INPUT CSV FORMAT:
 
   Columns:
     domain      - Domain name to query (e.g., google.com)
-    query_type  - DNS record type: A, AAAA, MX, TXT, NS, SOA, CNAME, PTR, SRV
+    query_type  - DNS record type: A, AAAA, MX, TXT, NS, SOA, CNAME, PTR, SRV, ANY
     transport   - Protocol: udp or tcp
     network     - IP version: ipv4 or ipv6
 
   Example CSV:
     domain,query_type,transport,network
     google.com,A,udp,ipv4
-    cloudflare.com,AAAA,tcp,ipv6
+    cloudflare.com,ANY,tcp,ipv4
     example.com,MX,udp,ipv4
-    github.com,TXT,tcp,ipv4
 
 DNS OPTIONS:
   --dns <server>
       DNS server(s) to use for queries.
-      Accepts IPv4, IPv6, or both with optional port.
-
-      Examples:
-        --dns 9.9.9.9                           Single server
-        --dns "1.1.1.1 2606:4700:4700::1111"    IPv4 + IPv6
-        --dns 9.9.9.9:5353                       Custom port
-        --dns "9.9.9.9:54 [2620:fe::fe]:5353"   Different ports
-
       Default: 8.8.8.8:53 (IPv4) and 2001:4860:4860::8888:53 (IPv6)
 
   -t, --timeout <duration>
       Maximum time to wait for each DNS query response.
-      Format: Go duration string (e.g., 5s, 500ms, 1m)
-
       Default: 5s
-      Recommended:
-        Fast network:     2s - 3s
-        Normal network:   5s (default)
-        Slow/satellite:   15s - 30s
 
   -r, --retry <count>
-      Number of times to retry a failed query before giving up.
-      Range: 0-10
+      Number of times to retry a failed query.
+      Range: 0-10, Default: 2
 
-      Default: 2
-      Use 0 for fail-fast behavior.
-      Use 3-5 for unreliable networks.
+PERFORMANCE OPTIONS:
+  -w, --workers <count>
+      Number of concurrent workers (manual override).
+      Range: 1-200
+      If not specified, auto-scales based on query count.
+
+      Examples:
+        --workers 10     Use exactly 10 workers
+        --workers 100    Use 100 workers for large batches
+
+OVERRIDE OPTIONS:
+  --transport <tcp|udp>
+      Override transport protocol for ALL queries.
+      Ignores 'transport' column in CSV.
+
+      Examples:
+        --transport tcp   Force all queries to use TCP
+        --transport udp   Force all queries to use UDP
+
+  --query-all
+      Query ALL record types for each domain.
+      Expands each domain to: A, AAAA, MX, TXT, NS, SOA, CNAME, PTR, SRV
+      Ignores 'query_type' column in CSV.
+      
+      NOTE: Does NOT include ANY queries (redundant with individual types)
+      
+      Example: If CSV has 10 domains, this generates 90 queries (10×9 types)
 
 OUTPUT OPTIONS:
   -o, --output <filename>
       Base name for output file(s).
-      Extension is automatically added based on format.
-      If not specified, defaults to "result"
-
-      Examples:
-        --output myresults       → myresults.json
-        --output report.json     → report.json
-        --output /tmp/dns_test   → /tmp/dns_test.json
+      Default: "result"
 
   -f, --format <type>
-      Output file format. Options:
-        json   - JSON with metadata and results (default)
-        csv    - Comma-separated values
-        all    - Generate both JSON and CSV files
-
+      Output file format: json, csv, all
       Default: json
-
-      Examples:
-        --format json    → result.json
-        --format csv     → result.csv
-        --format all     → result.json + result.csv
 
 OTHER:
   -h, --help
-      Show this help message and exit.
-
-FEATURES:
-  • Auto-scaling worker pool (1-50 concurrent workers)
-  • Real-time progress tracking
-  • Automatic retry on failure
-  • Support for all major DNS record types
-  • Independent transport (UDP/TCP) and network (IPv4/IPv6) selection
-  • Rich JSON output with metadata and statistics
-  • CSV output for spreadsheet analysis
-
-OUTPUT FILE DETAILS:
-
-  JSON Output (default):
-    Contains metadata section with:
-      - Timestamp, total queries, success/failure counts
-      - Total duration, average latency, queries/second
-      - DNS server configuration used
-      - Worker count and timeout settings
-    Contains results array with:
-      - Domain, query type, transport, network
-      - Status, latency, response code
-      - Resolved IPs, DNS records, errors
-
-  CSV Output:
-    Columns: domain, query_type, transport, network, status,
-             latency_ms, response_code, resolved_ips, records,
-             error, timestamp
-
-STATUS VALUES:
-  success    - Query returned valid records
-  no_answer  - Query succeeded but no matching records found
-  nxdomain   - Domain does not exist
-  servfail   - DNS server failure
-  refused    - DNS server refused the query
-  timeout    - Query timed out
-  error      - Other error occurred
+      Show this help message.
 
 EXAMPLES:
 
-  Basic usage (generates result.json):
+  Basic usage:
     $ dns_query_utility queries.csv
 
-  Custom DNS server:
-    $ dns_query_utility queries.csv --dns 1.1.1.1
+  Manual worker count:
+    $ dns_query_utility queries.csv --workers 20
 
-  Generate CSV output:
-    $ dns_query_utility queries.csv --format csv
+  Force TCP for all queries:
+    $ dns_query_utility queries.csv --transport tcp
 
-  Generate both JSON and CSV:
-    $ dns_query_utility queries.csv --format all
+  Query all record types:
+    $ dns_query_utility queries.csv --query-all
 
-  Custom output name:
-    $ dns_query_utility queries.csv --output dns_report
-
-  Full options:
+  Combined overrides:
     $ dns_query_utility queries.csv \
-        --dns "1.1.1.1 2606:4700:4700::1111" \
-        --timeout 10s \
-        --retry 3 \
-        --output report \
+        --dns 1.1.1.1 \
+        --workers 50 \
+        --transport tcp \
+        --query-all \
+        --output comprehensive_scan \
         --format all
 
-  Quick test with short flags:
-    $ dns_query_utility test.csv -t 3s -r 0 -o test_result -f json
+  High-performance scan:
+    $ dns_query_utility large_list.csv \
+        --dns 1.1.1.1 \
+        --workers 100 \
+        --timeout 2s \
+        --retry 0 \
+        --transport udp
 
 POPULAR DNS SERVERS:
   Google:      8.8.8.8         / 2001:4860:4860::8888

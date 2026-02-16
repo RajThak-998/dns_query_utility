@@ -9,9 +9,10 @@ import (
 type Format string
 
 const (
-	FormatCSV  Format = "csv"
-	FormatJSON Format = "json"
-	FormatAll  Format = "all" // Generate both
+	FormatCSV         Format = "csv"
+	FormatJSON        Format = "json"
+	FormatAll         Format = "all"
+	FormatConsolidated Format = "consolidated" // NEW: Consolidated JSON format
 )
 
 // Metadata contains summary information about the query run
@@ -29,6 +30,7 @@ type Metadata struct {
 	WorkersUsed       int       `json:"workers_used"`
 	TimeoutSeconds    float64   `json:"timeout_seconds"`
 	RetryCount        int       `json:"retry_count"`
+	ConsolidatedMode  bool      `json:"consolidated_mode,omitempty"`
 }
 
 // Writer interface for output formats
@@ -36,14 +38,27 @@ type Writer interface {
 	Write(results []result.QueryResult, metadata Metadata) error
 }
 
+// ConsolidatedWriter interface for consolidated format
+type ConsolidatedWriter interface {
+	WriteConsolidated(results []result.ConsolidatedResult, metadata Metadata) error
+}
+
 // WriteOutput writes results to file(s) based on format
-func WriteOutput(filepath string, format Format, results []result.QueryResult, metadata Metadata) error {
+func WriteOutput(filepath string, format Format, results []result.QueryResult, metadata Metadata, consolidate bool) error {
 	switch format {
 	case FormatCSV:
 		w := NewCSVWriter(filepath)
 		return w.Write(results, metadata)
 
 	case FormatJSON:
+		if consolidate {
+			// Use consolidated format
+			consolidated := result.ConsolidateResults(results)
+			w := NewConsolidatedJSONWriter(filepath)
+			metadata.ConsolidatedMode = true
+			return w.WriteConsolidated(consolidated, metadata)
+		}
+		// Normal JSON format
 		w := NewJSONWriter(filepath)
 		return w.Write(results, metadata)
 
@@ -55,6 +70,13 @@ func WriteOutput(filepath string, format Format, results []result.QueryResult, m
 		csvWriter := NewCSVWriter(csvPath)
 		if err := csvWriter.Write(results, metadata); err != nil {
 			return err
+		}
+
+		if consolidate {
+			consolidated := result.ConsolidateResults(results)
+			jsonWriter := NewConsolidatedJSONWriter(jsonPath)
+			metadata.ConsolidatedMode = true
+			return jsonWriter.WriteConsolidated(consolidated, metadata)
 		}
 
 		jsonWriter := NewJSONWriter(jsonPath)

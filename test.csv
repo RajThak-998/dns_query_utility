@@ -1,0 +1,4 @@
+domain,query_type,transport,network
+apple.com,NS,udp,ipv4
+cloudflare.com,AAAA,tcp,ipv6
+example.com,ANY,udp,ipv4

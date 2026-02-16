@@ -41,6 +41,7 @@ func (w *CSVWriter) Write(results []result.QueryResult, metadata Metadata) error
 		"response_code",
 		"resolved_ips",
 		"records",
+		"authoritative_ns",
 		"error",
 		"timestamp",
 	}
@@ -60,6 +61,7 @@ func (w *CSVWriter) Write(results []result.QueryResult, metadata Metadata) error
 			strconv.Itoa(res.ResponseCode),
 			joinIPs(res.ResolvedIPs),
 			joinRecords(res.Records),
+			joinRecords(res.AuthoritativeNS),
 			res.Error,
 			res.Timestamp.Format("2006-01-02 15:04:05.000"),
 		}
@@ -73,10 +75,16 @@ func (w *CSVWriter) Write(results []result.QueryResult, metadata Metadata) error
 
 // joinIPs converts IP slice to comma-separated string
 func joinIPs(ips []string) string {
-	return strings.Join(ips, ";")
+	if len(ips) == 0 {
+		return ""
+	}
+	return strings.Join(ips, "; ")
 }
 
 // joinRecords converts records slice to semicolon-separated string
 func joinRecords(records []string) string {
-	return strings.Join(records, ";")
+	if len(records) == 0 {
+		return ""
+	}
+	return strings.Join(records, "; ")
 }
