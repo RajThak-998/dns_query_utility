@@ -12,11 +12,11 @@ A high-performance, concurrent DNS query utility for bulk domain resolution with
 ## ✨ Features
 
 - 🚀 **Concurrent Execution** - Auto-scaling worker pool (1-50 workers) for optimal performance
-- 📊 **Multiple DNS Record Types** - Support for A, AAAA, MX, TXT, NS, SOA, CNAME, PTR, SRV, CAA
+- 📊 **Multiple DNS Record Types** - Support for A, AAAA, MX, TXT, NS, SOA, CNAME, PTR, SRV
 - 🌍 **IPv4 & IPv6** - Full support for both IP versions with independent transport control
 - 🔄 **Dual DNS Servers** - Configure primary and secondary DNS servers
-- 📝 **Flexible Output** - JSON (default), CSV, or both formats with rich metadata
-- ⚡ **Smart Defaults** - Works out of the box with Google DNS (8.8.8.8)
+- 📝 **Flexible Output** - JSON (default), CSV, or all formats with rich metadata
+- ⚡ **Smart Defaults** - Uses Google DNS by default (8.8.8.8:53 and 2001:4860:4860::8888:53)
 - 🎯 **Custom Ports** - Support for non-standard DNS ports
 - 🔁 **Retry Logic** - Configurable retry attempts with exponential backoff
 - ⏱️ **Timeout Control** - Flexible timeout configuration (seconds, milliseconds, minutes)
@@ -104,7 +104,7 @@ The utility reads DNS queries from a CSV file with 4 columns:
 | Column | Description | Valid Values | Example |
 |--------|-------------|--------------|---------|
 | `domain` | Domain name to query | Any valid domain | `google.com` |
-| `query_type` | DNS record type | `A`, `AAAA`, `MX`, `TXT`, `NS`, `SOA`, `CNAME`, `PTR`, `SRV`, `CAA` | `A` |
+| `query_type` | DNS record type | `A`, `AAAA`, `MX`, `TXT`, `NS`, `SOA`, `CNAME`, `PTR`, `SRV` | `A` |
 | `transport` | Network transport | `udp`, `tcp` | `udp` |
 | `network` | IP version | `ipv4`, `ipv6` | `ipv4` |
 
@@ -132,7 +132,6 @@ aws.amazon.com,CNAME,udp,ipv4
 - **CNAME** - Canonical names
 - **PTR** - Pointer records
 - **SRV** - Service records
-- **CAA** - Certification authority authorization
 
 ## 📖 Command Reference
 
@@ -146,12 +145,12 @@ aws.amazon.com,CNAME,udp,ipv4
 
 | Flag | Short | Description | Default | Example |
 |------|-------|-------------|---------|---------|
-| `--dns` | - | DNS server(s) (up to 2) | `8.8.8.8` | `--dns 1.1.1.1` |
-| `--timeout` | - | Query timeout | `2s` | `--timeout 5s` |
-| `--retry` | - | Retry attempts (0-10) | `1` | `--retry 3` |
-| `--output` | `-o` | Output file name | `result.json` | `--output dns_results.json` |
-| `--format` | `-f` | Output format | `json` | `--format csv` |
-| `--help` | `-h` | Show help message | - | `--help` |
+| `--dns` | - | DNS server(s) to use (up to 2). Accepts IPv4/IPv6, optional port. When passing multiple servers, wrap the list in quotes. | `8.8.8.8:53` (IPv4) & `2001:4860:4860::8888:53` (IPv6) | `--dns 1.1.1.1` |
+| `-t`, `--timeout` | -t | Query timeout (Go duration format) | `5s` | `--timeout 10s` |
+| `-r`, `--retry` | -r | Retry attempts (0-10) | `2` | `--retry 3` |
+| `-o`, `--output` | -o | Base name for output file(s). Extension added based on format. | `result` | `--output dns_results` |
+| `-f`, `--format` | -f | Output format: `json`, `csv`, `all` | `json` | `--format csv` |
+| `-h`, `--help` | -h | Show help message | - | `--help` |
 
 ### Timeout Format
 
@@ -161,11 +160,13 @@ aws.amazon.com,CNAME,udp,ipv4
 
 ## 🌐 DNS Server Configuration
 
-### Default DNS Server
+### Default DNS Servers
 
 ```bash
 ./dns_query_utility queries.csv
-# Uses Google DNS: 8.8.8.8:53
+# Uses Google DNS by default:
+#  - IPv4:  8.8.8.8:53
+#  - IPv6:  2001:4860:4860::8888:53
 ```
 
 ### Single Custom DNS Server
@@ -174,30 +175,29 @@ aws.amazon.com,CNAME,udp,ipv4
 # IPv4 DNS server
 ./dns_query_utility queries.csv --dns 1.1.1.1
 
-# IPv4 DNS with custom port
+# IPv4 with custom port
 ./dns_query_utility queries.csv --dns 1.1.1.1:5353
 
 # IPv6 DNS server
 ./dns_query_utility queries.csv --dns 2606:4700:4700::1111
 
-# IPv6 DNS with custom port
+# IPv6 with custom port (use brackets)
 ./dns_query_utility queries.csv --dns [2606:4700:4700::1111]:5353
 ```
 
-### Dual DNS Servers (Primary + Secondary)
+### Dual / Multiple DNS Servers (wrap list in quotes)
+
+When providing more than one DNS server (or mixing IPv4/IPv6), wrap the argument in double quotes:
 
 ```bash
-# Two IPv4 servers
-./dns_query_utility queries.csv --dns 8.8.8.8 1.1.1.1
-
 # IPv4 + IPv6
-./dns_query_utility queries.csv --dns 8.8.8.8 2606:4700:4700::1111
+./dns_query_utility queries.csv --dns "8.8.8.8 2606:4700:4700::1111"
 
-# With custom ports
-./dns_query_utility queries.csv --dns 8.8.8.8:53 1.1.1.1:5353
+# Two IPv4 servers
+./dns_query_utility queries.csv --dns "8.8.8.8 1.1.1.1"
 
-# IPv6 servers with ports
-./dns_query_utility queries.csv --dns [2620:fe::fe]:53 [2620:fe::9]:5353
+# With custom ports (IPv6 addresses with ports must use brackets)
+./dns_query_utility queries.csv --dns "9.9.9.9:54 [2620:fe::fe]:5353"
 ```
 
 ### Popular DNS Servers
@@ -211,75 +211,43 @@ aws.amazon.com,CNAME,udp,ipv4
 
 ## 📊 Output Formats
 
-### JSON Output (Default)
+### Supported formats
+- `json` — JSON with metadata and results (default)
+- `csv`  — Comma-separated values
+- `all`  — Generate both JSON and CSV files
+
+Examples:
 
 ```bash
-./dns_query_utility queries.csv
-# Creates: result.json
-```
+# JSON (default)
+./dns_query_utility queries.csv        # creates: result.json
 
-**Structure:**
-```json
-{
-  "metadata": {
-    "total_queries": 100,
-    "successful": 95,
-    "failed": 5,
-    "execution_time_ms": 1234,
-    "average_latency_ms": 45.2,
-    "min_latency_ms": 12.5,
-    "max_latency_ms": 234.8,
-    "dns_servers": ["8.8.8.8:53"],
-    "timestamp": "2026-02-11T10:30:45Z"
-  },
-  "results": [
-    {
-      "domain": "google.com",
-      "query_type": "A",
-      "transport": "udp",
-      "network": "ipv4",
-      "status": "success",
-      "ips": ["142.250.185.46"],
-      "other_records": [],
-      "latency_ms": 23.45,
-      "timestamp": "2026-02-11T10:30:45.123Z"
-    }
-  ]
-}
-```
+# CSV
+./dns_query_utility queries.csv --format csv   # creates: result.csv
 
-### CSV Output
-
-```bash
-./dns_query_utility queries.csv --format csv
-# Creates: result.csv
-```
-
-**Structure:**
-```csv
-domain,query_type,transport,network,status,ips,other_records,latency_ms,timestamp,dns_server_ipv4,dns_server_ipv6
-google.com,A,udp,ipv4,success,142.250.185.46;142.250.185.78,,23.45,2026-02-11T10:30:45.123Z,8.8.8.8:53,
-```
-
-### Both Formats
-
-```bash
-./dns_query_utility queries.csv --format both
-# Creates: result.json AND result.csv
+# Both (all)
+./dns_query_utility queries.csv --format all   # creates: result.json + result.csv
 ```
 
 ### Custom Output File Names
 
+- If `--output` is not provided the base name defaults to `result`.
+- The utility appends the appropriate extension based on `--format` (e.g., `.json`, `.csv`).
+
+Examples:
+
 ```bash
 # JSON with custom name
-./dns_query_utility queries.csv -o my_dns_results.json
+./dns_query_utility queries.csv -o my_dns_results
+# creates: my_dns_results.json
 
 # CSV with custom name
-./dns_query_utility queries.csv -f csv -o dns_audit.csv
+./dns_query_utility queries.csv -f csv -o dns_audit
+# creates: dns_audit.csv
 
 # Both formats with custom base name
-./dns_query_utility queries.csv -f both -o dns_test
-# Creates: dns_test.json AND dns_test.csv
+./dns_query_utility queries.csv -f all -o dns_test
+# creates: dns_test.json AND dns_test.csv
 ```
 
 ## 💡 Usage Examples
@@ -289,9 +257,9 @@ google.com,A,udp,ipv4,success,142.250.185.46;142.250.185.78,,23.45,2026-02-11T10
 ```bash
 ./dns_query_utility queries.csv
 ```
-- Uses Google DNS (8.8.8.8)
-- 2-second timeout
-- 1 retry attempt
+- Uses Google DNS (8.8.8.8 / 2001:4860:4860::8888)
+- 5-second timeout (default)
+- 2 retry attempts (default)
 - JSON output to result.json
 
 ### Example 2: Use Cloudflare DNS with Longer Timeout
@@ -346,7 +314,7 @@ google.com,A,udp,ipv4,success,142.250.185.46;142.250.185.78,,23.45,2026-02-11T10
 ### Example 9: Both Formats for Comprehensive Analysis
 
 ```bash
-./dns_query_utility queries.csv --format both --output dns_test
+./dns_query_utility queries.csv --format all --output dns_test
 ```
 - Creates dns_test.json (for automated processing)
 - Creates dns_test.csv (for manual review)
