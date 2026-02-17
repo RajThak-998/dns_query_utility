@@ -92,7 +92,7 @@ func main() {
 	fmt.Printf("Successfully parsed %d queries from CSV\n", len(specs))
 
 	// Check for ANY + --query-all conflict
-	checkForANYWithQueryAll(specs, queryAll)
+	// checkForANYWithQueryAll(specs, queryAll)
 
 	// Apply overrides BEFORE calculating workers
 	originalCount := len(specs)
@@ -287,26 +287,26 @@ func expandToAllTypes(specs []query.QuerySpec) []query.QuerySpec {
 }
 
 // checkForANYWithQueryAll validates that ANY queries aren't combined with --query-all
-func checkForANYWithQueryAll(specs []query.QuerySpec, queryAll bool) {
-	if !queryAll {
-		return
-	}
+// func checkForANYWithQueryAll(specs []query.QuerySpec, queryAll bool) {
+// 	if !queryAll {
+// 		return
+// 	}
 
-	hasANY := false
-	for _, spec := range specs {
-		if spec.QueryType == query.QueryTypeANY {
-			hasANY = true
-			break
-		}
-	}
+// 	hasANY := false
+// 	for _, spec := range specs {
+// 		if spec.QueryType == query.QueryTypeANY {
+// 			hasANY = true
+// 			break
+// 		}
+// 	}
 
-	if hasANY {
-		fmt.Println("\n⚠️  WARNING: Your CSV contains 'ANY' query type.")
-		fmt.Println("   Using --query-all with ANY is redundant.")
-		fmt.Println("   Recommendation: Either use --query-all OR use ANY queries, not both.")
-		fmt.Println("   The ANY queries will be expanded to individual types.")
-	}
-}
+// 	if hasANY {
+// 		fmt.Println("\n⚠️  WARNING: Your CSV contains 'ANY' query type.")
+// 		fmt.Println("   Using --query-all with ANY is redundant.")
+// 		fmt.Println("   Recommendation: Either use --query-all OR use ANY queries, not both.")
+// 		fmt.Println("   The ANY queries will be expanded to individual types.")
+// 	}
+// }
 
 func buildMetadata(results []result.QueryResult, duration time.Duration, cfg config.Config, ipv4 string, ipv4Port int, ipv6 string, ipv6Port int) output.Metadata {
 	successCount := 0

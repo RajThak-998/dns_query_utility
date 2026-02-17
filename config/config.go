@@ -17,8 +17,8 @@ type Config struct {
 	Timeout           time.Duration
 	RetryCount        int
 	WorkerCount       int
-	TransportOverride string // NEW: Optional transport override ("tcp", "udp", or "")
-	QueryAllTypes     bool   // NEW: If true, query all record types
+	TransportOverride string
+	QueryAllTypes     bool
 }
 
 // Validate checks if configuration is valid
